@@ -3,11 +3,6 @@ const cors = require('cors');
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
-console.log('Starting server...');
-console.log('Environment variables loaded. PORT:', process.env.PORT);
-console.log('MONGO_URI exists:', !!process.env.MONGO_URI);
-console.log('Current directory:', __dirname);
-
 const connectDB = require('./config/db');
 const viewsRoutes = require('./routes/views');
 
@@ -15,14 +10,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-console.log('Attempting to connect to MongoDB...');
-connectDB()
-  .then(() => {
-    console.log('MongoDB connection successful');
-  })
-  .catch((err) => {
-    console.error('MongoDB connection failed in server.js:', err);
-  });
+connectDB().catch((err) => {
+  // Log only critical DB connection errors
+  console.error('MongoDB connection failed:', err);
+  process.exit(1);
+});
 
 app.use('/api/views', viewsRoutes);
 
