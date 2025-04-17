@@ -1,7 +1,6 @@
-
 # Authentication Setup for Mystic Hits API
 
-This document outlines the JWT-based authentication flow, including signup, login, forgot password, and reset password, running on port 8000.
+This document outlines the JWT-based authentication flow, including signup, login, and route protection, running on port 8000.
 
 ---
 
@@ -13,10 +12,6 @@ Create a `.env` file at the project root:
 MONGO_URI=mongodb://localhost:27017/mystichits
 PORT=8000
 JWT_SECRET=your_jwt_secret_here
-EMAIL_HOST=smtp.your-email.com
-EMAIL_PORT=587
-EMAIL_USER=your@email.com
-EMAIL_PASS=your-email-password
 RESET_TOKEN_EXPIRES=3600000   # 1 hour in milliseconds
 ```
 
@@ -31,24 +26,42 @@ const mongoose = require('mongoose');
 const crypto = require('crypto');
 
 const userSchema = new mongoose.Schema({
-  username:   { type: String, required: true },
-  email:      { type: String, required: true, unique: true },
-  password:   { type: String, required: true },
-  createdAt:  { type: Date,   default: Date.now },
-  resetPasswordToken:   String,
-  resetPasswordExpires: Date,
+  username: {
+    type: String,
+    required: true,
+    trim: true,
+  },
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true,
+    trim: true,
+  },
+  password: {
+    type: String,
+    required: true,
+  },
+  resetPasswordToken: {
+    type: String,
+  },
+  resetPasswordExpires: {
+    type: Date,
+  },
 });
 
-// Generate password reset token
-userSchema.methods.createPasswordReset = function() {
-  const buf = crypto.randomBytes(20);
-  const token = buf.toString('hex');
+// Instance method to create a password reset token
+userSchema.methods.createPasswordReset = function () {
+  const resetToken = crypto.randomBytes(32).toString('hex');
   this.resetPasswordToken = crypto
     .createHash('sha256')
-    .update(token)
+    .update(resetToken)
     .digest('hex');
-  this.resetPasswordExpires = Date.now() + parseInt(process.env.RESET_TOKEN_EXPIRES);
-  return token;
+  const expiresIn = process.env.RESET_TOKEN_EXPIRES
+    ? parseInt(process.env.RESET_TOKEN_EXPIRES, 10)
+    : 60 * 60 * 1000; // 1 hour in ms
+  this.resetPasswordExpires = Date.now() + expiresIn;
+  return resetToken;
 };
 
 module.exports = mongoose.model('User', userSchema);
@@ -62,98 +75,57 @@ module.exports = mongoose.model('User', userSchema);
 
 ```javascript
 const User = require('../models/User');
-const bcrypt = require('bcryptjs');
+const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-const nodemailer = require('nodemailer');
 
-// Configure email transporter
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: process.env.EMAIL_PORT,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+const JWT_SECRET = process.env.JWT_SECRET || 'changeme';
+const JWT_EXPIRES_IN = '7d';
 
-// Signup
 exports.signup = async (req, res) => {
-  const { username, email, password } = req.body;
   try {
-    if (await User.findOne({ email })) {
-      return res.status(400).json({ message: 'Email already in use' });
+    const { username, email, password } = req.body;
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: 'All fields are required.' });
     }
-    const hash = await bcrypt.hash(password, 12);
-    const user = await User.create({ username, email, password: hash });
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const existing = await User.findOne({ email });
+    if (existing) {
+      return res.status(400).json({ error: 'Email already in use.' });
+    }
+    const hashedPassword = await bcrypt.hash(password, 12);
+    const user = await User.create({
+      username,
+      email,
+      password: hashedPassword,
+    });
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET, {
+      expiresIn: JWT_EXPIRES_IN,
+    });
     res.status(201).json({ token, userId: user._id });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Server error.' });
   }
 };
 
-// Login
 exports.login = async (req, res) => {
-  const { email, password } = req.body;
   try {
-    const user = await User.findOne({ email });
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password required.' });
     }
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials.' });
+    }
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) {
+      return res.status(401).json({ error: 'Invalid credentials.' });
+    }
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET, {
+      expiresIn: JWT_EXPIRES_IN,
+    });
     res.json({ token, userId: user._id });
   } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
-
-// Forgot Password
-exports.forgotPassword = async (req, res) => {
-  const { email } = req.body;
-  try {
-    const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ message: 'No account with that email' });
-
-    const resetToken = user.createPasswordReset();
-    await user.save();
-
-    const resetUrl = `${req.protocol}://${req.get('host')}/api/auth/reset-password/${resetToken}`;
-    await transporter.sendMail({
-      to: user.email,
-      from: process.env.EMAIL_USER,
-      subject: 'Password Reset',
-      text: `Click to reset your password:
-
-${resetUrl}`
-    });
-
-    res.json({ message: 'Reset email sent' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-};
-
-// Reset Password
-exports.resetPassword = async (req, res) => {
-  const { token } = req.params;
-  const { password } = req.body;
-  try {
-    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
-    const user = await User.findOne({
-      resetPasswordToken: hashedToken,
-      resetPasswordExpires: { $gt: Date.now() },
-    });
-    if (!user) return res.status(400).json({ message: 'Invalid or expired token' });
-
-    user.password = await bcrypt.hash(password, 12);
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpires = undefined;
-    await user.save();
-
-    res.json({ message: 'Password has been reset' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Server error.' });
   }
 };
 ```
@@ -171,8 +143,6 @@ const authController = require('../controllers/authController');
 
 router.post('/signup', authController.signup);
 router.post('/login', authController.login);
-router.post('/forgot-password', authController.forgotPassword);
-router.post('/reset-password/:token', authController.resetPassword);
 
 module.exports = router;
 ```
@@ -186,17 +156,20 @@ module.exports = router;
 ```javascript
 const jwt = require('jsonwebtoken');
 
-module.exports = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ message: 'Authentication failed!' });
+const JWT_SECRET = process.env.JWT_SECRET || 'changeme';
 
+module.exports = function (req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'No token provided' });
+  }
   const token = authHeader.split(' ')[1];
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
     req.userId = decoded.userId;
     next();
   } catch (err) {
-    return res.status(401).json({ message: 'Invalid or expired token.' });
+    return res.status(401).json({ error: 'Invalid or expired token' });
   }
 };
 ```
@@ -229,38 +202,63 @@ app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
 ---
 
-## 7. Testing Endpoints
+## 7. Protected Views Endpoint
+
+**File: `routes/views.js`**
+
+```javascript
+const express = require('express');
+const router = express.Router();
+const viewsController = require('../controllers/viewsController');
+const auth = require('../middleware/auth');
+
+router.get('/register-view', auth, viewsController.registerView);
+
+module.exports = router;
+```
+
+**Usage:**  
+To access `/api/views/register-view`, you must include a valid JWT in the Authorization header:
+
+```
+GET http://localhost:8000/api/views/register-view
+Authorization: Bearer <your-jwt-token>
+```
+
+---
+
+## 8. Testing Endpoints
 
 1. **Signup**  
    `POST http://localhost:8000/api/auth/signup`  
-   Body:  
+   Body:
+
    ```json
-   { "username":"alice", "email":"alice@example.com", "password":"secret123" }
+   {
+     "username": "alice",
+     "email": "alice@example.com",
+     "password": "secret123"
+   }
    ```
 
 2. **Login**  
    `POST http://localhost:8000/api/auth/login`  
-   Body:  
+   Body:
+
    ```json
-   { "email":"alice@example.com", "password":"secret123" }
+   { "email": "alice@example.com", "password": "secret123" }
    ```
 
-3. **Forgot Password**  
-   `POST http://localhost:8000/api/auth/forgot-password`  
-   Body:  
-   ```json
-   { "email":"alice@example.com" }
-   ```
-
-4. **Reset Password**  
-   `POST http://localhost:8000/api/auth/reset-password/<token>`  
-   Body:  
-   ```json
-   { "password":"newSecret123" }
-   ```
-
-5. **Protected Route**  
-   Include header:  
+3. **Protected Route Example**  
+   `GET http://localhost:8000/api/views/register-view`  
+   Header:
    ```
    Authorization: Bearer <token>
    ```
+
+---
+
+## 9. (Planned) Forgot/Reset Password
+
+> The forgot/reset password endpoints and email logic are not yet implemented in the codebase.  
+> When implemented, they will follow the pattern described in the earlier documentation.
