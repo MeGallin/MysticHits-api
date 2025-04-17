@@ -5,6 +5,7 @@ require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
 const connectDB = require('./config/db');
 const viewsRoutes = require('./routes/views');
+const authRoutes = require('./routes/auth');
 
 const app = express();
 app.use(cors());
@@ -16,9 +17,14 @@ connectDB().catch((err) => {
   process.exit(1);
 });
 
+app.use('/api/auth', authRoutes);
 app.use('/api/views', viewsRoutes);
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+const PORT = process.env.PORT || 8000;
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+  });
+}
+
+module.exports = app;
