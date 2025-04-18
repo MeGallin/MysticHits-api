@@ -4,7 +4,7 @@ const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 
 const connectDB = require('./config/db');
-const viewsRoutes = require('./routes/views');
+const hitsRoutes = require('./routes/hits');
 const authRoutes = require('./routes/auth');
 
 const app = express();
@@ -18,7 +18,7 @@ connectDB().catch((err) => {
 });
 
 app.use('/api/auth', authRoutes);
-app.use('/api/views', viewsRoutes);
+app.use('/api/hits', hitsRoutes);
 
 const PORT = process.env.PORT || 8000;
 if (require.main === module) {
