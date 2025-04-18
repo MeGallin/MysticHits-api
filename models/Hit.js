@@ -1,19 +1,19 @@
 const mongoose = require('mongoose');
 
-const viewSchema = new mongoose.Schema({
+const hitSchema = new mongoose.Schema({
   ipAddress: {
     type: String,
     required: true,
     unique: true,
   },
-  viewCount: {
+  hitCount: {
     type: Number,
     default: 1,
   },
-  lastViewedAt: {
+  lastHitAt: {
     type: Date,
     default: Date.now,
   },
 });
 
-module.exports = mongoose.model('View', viewSchema);
+module.exports = mongoose.model('Hit', hitSchema);
