@@ -352,9 +352,62 @@ exports.forgotPassword = async (req, res) => {
 router.post('/forgot-password', authController.forgotPassword);
 ```
 
-### 9.3 Usage
+### 9.3 Reset Password Endpoint
 
-**Request Forgot Password:**  
+**File: `controllers/authController.js`**
+
+```javascript
+exports.resetPassword = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    // Validate input
+    if (!token || !password) {
+      return res.status(400).json({ error: 'Token and password are required' });
+    }
+
+    // Hash the token to compare with stored hash
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    // Find user with matching token and unexpired reset token
+    const user = await User.findOne({
+      resetPasswordToken: hashedToken,
+      resetPasswordExpires: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid or expired token' });
+    }
+
+    // Hash the new password
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    // Update user's password and clear reset token fields
+    user.password = hashedPassword;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+
+    await user.save();
+
+    res.status(200).json({ message: 'Password has been reset successfully' });
+  } catch (err) {
+    console.error('Password reset error:', err);
+    res.status(500).json({ error: 'Failed to reset password' });
+  }
+};
+```
+
+**File: `routes/auth.js`**
+
+```javascript
+router.post('/reset-password/:token', authController.resetPassword);
+```
+
+### 9.4 Usage
+
+#### Request Forgot Password:
+
 `POST http://localhost:8000/api/auth/forgot-password`  
 Body:
 
@@ -373,3 +426,30 @@ Body:
 ```
 
 The user will receive an email with a link to reset their password. The link will contain a unique token that expires after the time specified in `RESET_TOKEN_EXPIRES` (default: 1 hour).
+
+#### Reset Password:
+
+`POST http://localhost:8000/api/auth/reset-password/:token`  
+Body:
+
+```json
+{
+  "password": "newSecurePassword123"
+}
+```
+
+**Response:**
+
+```json
+{
+  "message": "Password has been reset successfully"
+}
+```
+
+If the token is invalid or expired, the response will be:
+
+```json
+{
+  "error": "Invalid or expired token"
+}
+```
