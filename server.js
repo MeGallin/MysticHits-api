@@ -6,6 +6,7 @@ require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 const connectDB = require('./config/db');
 const hitsRoutes = require('./routes/hits');
 const authRoutes = require('./routes/auth');
+const contactRoutes = require('./routes/contact');
 
 const app = express();
 app.use(cors());
@@ -19,6 +20,7 @@ connectDB().catch((err) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/hits', hitsRoutes);
+app.use('/api/contact', contactRoutes);
 
 const PORT = process.env.PORT || 8000;
 if (require.main === module) {
