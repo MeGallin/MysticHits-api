@@ -2,16 +2,14 @@ const request = require('supertest');
 const mongoose = require('mongoose');
 const app = require('../server');
 const User = require('../models/User');
-const nodemailer = require('nodemailer');
-
-// Mock nodemailer
-jest.mock('nodemailer', () => ({
-  createTransport: jest.fn().mockReturnValue({
-    sendMail: jest.fn().mockResolvedValue({
-      messageId: 'test-message-id',
-    }),
+// Mock emailSender
+jest.mock('../utils/emailSender', () => ({
+  sendPasswordResetEmail: jest.fn().mockResolvedValue({
+    messageId: 'test-message-id',
   }),
 }));
+
+const { sendPasswordResetEmail } = require('../utils/emailSender');
 
 const TEST_USER = {
   username: 'testuser',
@@ -40,7 +38,7 @@ describe('Reset Password', () => {
   beforeEach(async () => {
     // Reset mocks
     jest.clearAllMocks();
-    sendMailMock = nodemailer.createTransport().sendMail;
+    sendMailMock = sendPasswordResetEmail;
 
     // Create a test user
     user = await User.create(TEST_USER);
@@ -124,9 +122,9 @@ describe('Forgot Password', () => {
   let sendMailMock;
 
   beforeEach(() => {
-    // Reset the mock and get a reference to the sendMail mock function
+    // Reset the mock
     jest.clearAllMocks();
-    sendMailMock = nodemailer.createTransport().sendMail;
+    sendMailMock = sendPasswordResetEmail;
   });
 
   it('should generate reset token and send email for existing user', async () => {
@@ -151,9 +149,8 @@ describe('Forgot Password', () => {
     // Verify email was sent
     expect(sendMailMock).toHaveBeenCalled();
     const emailCall = sendMailMock.mock.calls[0][0];
-    expect(emailCall.to).toBe(TEST_USER.email);
-    expect(emailCall.subject).toContain('Mystichits');
-    expect(emailCall.text).toContain('reset your password');
+    expect(emailCall.email).toBe(TEST_USER.email);
+    expect(emailCall.resetUrl).toContain('/api/auth/reset-password/');
   });
 
   it('should return 404 for non-existent email', async () => {

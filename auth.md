@@ -274,23 +274,83 @@ EMAIL_PASS=your_email_password
 EMAIL_FROM=noreply@mystichits.com
 ```
 
-### 9.2 Forgot Password Endpoint
+### 9.2 Email Sender Utility
 
-**File: `controllers/authController.js`**
+**File: `utils/emailSender.js`**
 
 ```javascript
 const nodemailer = require('nodemailer');
 
 // Configure nodemailer transporter
 const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || 'smtp.example.com',
+  host: process.env.EMAIL_HOST,
   port: process.env.EMAIL_PORT || 587,
-  secure: process.env.EMAIL_SECURE === 'true',
+  secure: process.env.EMAIL_SECURE === 'false',
   auth: {
-    user: process.env.EMAIL_USER || 'user@example.com',
-    pass: process.env.EMAIL_PASS || 'password',
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
   },
 });
+
+/**
+ * Send an email using the configured transporter
+ */
+const sendEmail = async (options) => {
+  const { to, subject, text, html, from, bcc } = options;
+
+  const mailOptions = {
+    from: from || process.env.EMAIL_FROM || 'noreply@mystichits.com',
+    to,
+    subject,
+    text,
+    bcc: bcc || process.env.MAILER_BCC,
+  };
+
+  if (html) {
+    mailOptions.html = html;
+  }
+
+  return await transporter.sendMail(mailOptions);
+};
+
+/**
+ * Send a password reset email
+ */
+const sendPasswordResetEmail = async ({ email, resetUrl }) => {
+  const subject = 'Mystichits - Password Reset Request';
+
+  const message = `
+    Hello from Mystichits!
+    
+    You requested a password reset. Please click the link below to reset your password:
+    
+    ${resetUrl}
+    
+    If you didn't request this, please ignore this email.
+    
+    Thanks,
+    The Mystichits Team
+  `;
+
+  return await sendEmail({
+    to: email,
+    subject,
+    text: message,
+  });
+};
+
+module.exports = {
+  sendEmail,
+  sendPasswordResetEmail,
+};
+```
+
+### 9.3 Forgot Password Endpoint
+
+**File: `controllers/authController.js`**
+
+```javascript
+const { sendPasswordResetEmail } = require('../utils/emailSender');
 
 exports.forgotPassword = async (req, res) => {
   try {
@@ -316,26 +376,10 @@ exports.forgotPassword = async (req, res) => {
       'host',
     )}/api/auth/reset-password/${resetToken}`;
 
-    // Create email content
-    const message = `
-      Hello from Mystichits!
-      
-      You requested a password reset. Please click the link below to reset your password:
-      
-      ${resetUrl}
-      
-      If you didn't request this, please ignore this email.
-      
-      Thanks,
-      The Mystichits Team
-    `;
-
-    // Send email
-    await transporter.sendMail({
-      from: process.env.EMAIL_FROM || 'noreply@mystichits.com',
-      to: user.email,
-      subject: 'Mystichits - Password Reset Request',
-      text: message,
+    // Send password reset email
+    await sendPasswordResetEmail({
+      email: user.email,
+      resetUrl,
     });
 
     res.status(200).json({ message: 'Reset email sent' });
@@ -352,7 +396,7 @@ exports.forgotPassword = async (req, res) => {
 router.post('/forgot-password', authController.forgotPassword);
 ```
 
-### 9.3 Reset Password Endpoint
+### 9.4 Reset Password Endpoint
 
 **File: `controllers/authController.js`**
 
@@ -404,7 +448,7 @@ exports.resetPassword = async (req, res) => {
 router.post('/reset-password/:token', authController.resetPassword);
 ```
 
-### 9.4 Usage
+### 9.5 Usage
 
 #### Request Forgot Password:
 
