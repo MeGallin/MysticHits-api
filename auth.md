@@ -258,7 +258,118 @@ Authorization: Bearer <your-jwt-token>
 
 ---
 
-## 9. (Planned) Forgot/Reset Password
+## 9. Password Reset Flow
 
-> The forgot/reset password endpoints and email logic are not yet implemented in the codebase.  
-> When implemented, they will follow the pattern described in the earlier documentation.
+### 9.1 Environment Variables
+
+Add the following email configuration to your `.env` file:
+
+```env
+# Email Configuration
+EMAIL_HOST=smtp.example.com
+EMAIL_PORT=587
+EMAIL_SECURE=false
+EMAIL_USER=user@example.com
+EMAIL_PASS=your_email_password
+EMAIL_FROM=noreply@mystichits.com
+```
+
+### 9.2 Forgot Password Endpoint
+
+**File: `controllers/authController.js`**
+
+```javascript
+const nodemailer = require('nodemailer');
+
+// Configure nodemailer transporter
+const transporter = nodemailer.createTransport({
+  host: process.env.EMAIL_HOST || 'smtp.example.com',
+  port: process.env.EMAIL_PORT || 587,
+  secure: process.env.EMAIL_SECURE === 'true',
+  auth: {
+    user: process.env.EMAIL_USER || 'user@example.com',
+    pass: process.env.EMAIL_PASS || 'password',
+  },
+});
+
+exports.forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    // Validate email
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    // Find user by email
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Generate reset token
+    const resetToken = user.createPasswordReset();
+    await user.save();
+
+    // Construct reset URL
+    const resetUrl = `${req.protocol}://${req.get(
+      'host',
+    )}/api/auth/reset-password/${resetToken}`;
+
+    // Create email content
+    const message = `
+      Hello from Mystichits!
+      
+      You requested a password reset. Please click the link below to reset your password:
+      
+      ${resetUrl}
+      
+      If you didn't request this, please ignore this email.
+      
+      Thanks,
+      The Mystichits Team
+    `;
+
+    // Send email
+    await transporter.sendMail({
+      from: process.env.EMAIL_FROM || 'noreply@mystichits.com',
+      to: user.email,
+      subject: 'Mystichits - Password Reset Request',
+      text: message,
+    });
+
+    res.status(200).json({ message: 'Reset email sent' });
+  } catch (err) {
+    console.error('Password reset error:', err);
+    res.status(500).json({ error: 'Failed to send reset email' });
+  }
+};
+```
+
+**File: `routes/auth.js`**
+
+```javascript
+router.post('/forgot-password', authController.forgotPassword);
+```
+
+### 9.3 Usage
+
+**Request Forgot Password:**  
+`POST http://localhost:8000/api/auth/forgot-password`  
+Body:
+
+```json
+{
+  "email": "alice@example.com"
+}
+```
+
+**Response:**
+
+```json
+{
+  "message": "Reset email sent"
+}
+```
+
+The user will receive an email with a link to reset their password. The link will contain a unique token that expires after the time specified in `RESET_TOKEN_EXPIRES` (default: 1 hour).
