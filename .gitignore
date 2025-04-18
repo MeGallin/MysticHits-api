@@ -55,3 +55,6 @@ cypress/screenshots/
 
 # Build artifacts
 build/
+#Markdown files
+*.mdx
+.md
