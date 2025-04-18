@@ -32,6 +32,85 @@ beforeAll(async () => {
   }
 });
 
+describe('Reset Password', () => {
+  let sendMailMock;
+  let resetToken;
+  let user;
+
+  beforeEach(async () => {
+    // Reset mocks
+    jest.clearAllMocks();
+    sendMailMock = nodemailer.createTransport().sendMail;
+
+    // Create a test user
+    user = await User.create(TEST_USER);
+
+    // Generate reset token
+    resetToken = user.createPasswordReset();
+    await user.save();
+  });
+
+  it('should reset password with valid token', async () => {
+    const newPassword = 'NewSecurePass456!';
+
+    const res = await request(app)
+      .post(`/api/auth/reset-password/${resetToken}`)
+      .send({ password: newPassword })
+      .expect(200);
+
+    // Check response
+    expect(res.body).toHaveProperty('message');
+    expect(res.body.message).toBe('Password has been reset successfully');
+
+    // Verify user's password was updated and token fields cleared
+    const updatedUser = await User.findById(user._id);
+    expect(updatedUser.resetPasswordToken).toBeUndefined();
+    expect(updatedUser.resetPasswordExpires).toBeUndefined();
+
+    // Verify new password works for login
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ email: TEST_USER.email, password: newPassword })
+      .expect(200);
+
+    expect(loginRes.body).toHaveProperty('token');
+  });
+
+  it('should return 400 for invalid token', async () => {
+    const res = await request(app)
+      .post('/api/auth/reset-password/invalidtoken')
+      .send({ password: 'NewPassword123' })
+      .expect(400);
+
+    expect(res.body).toHaveProperty('error');
+    expect(res.body.error).toBe('Invalid or expired token');
+  });
+
+  it('should return 400 if password is not provided', async () => {
+    const res = await request(app)
+      .post(`/api/auth/reset-password/${resetToken}`)
+      .send({})
+      .expect(400);
+
+    expect(res.body).toHaveProperty('error');
+    expect(res.body.error).toBe('Token and password are required');
+  });
+
+  it('should return 400 if token is expired', async () => {
+    // Manually expire the token
+    user.resetPasswordExpires = Date.now() - 3600000; // 1 hour ago
+    await user.save();
+
+    const res = await request(app)
+      .post(`/api/auth/reset-password/${resetToken}`)
+      .send({ password: 'NewPassword123' })
+      .expect(400);
+
+    expect(res.body).toHaveProperty('error');
+    expect(res.body.error).toBe('Invalid or expired token');
+  });
+});
+
 afterAll(async () => {
   await User.deleteMany({});
   await mongoose.disconnect();
