@@ -39,18 +39,22 @@ describe('Playlist Controller Unit Tests', () => {
       expect(result[0]).toEqual({
         title: 'Song 1',
         url: 'https://example.com/music/song1.mp3',
+        mime: 'audio/mpeg',
       });
       expect(result[1]).toEqual({
         title: 'Song 2',
         url: 'https://example.com/music/song2.mp3',
+        mime: 'audio/mpeg',
       });
       expect(result[2]).toEqual({
         title: 'Song3',
         url: 'https://example.com/music/song3.mp3',
+        mime: 'audio/mpeg',
       });
       expect(result[3]).toEqual({
         title: 'Uppercase Extension',
         url: 'https://example.com/music/UPPERCASE.MP3',
+        mime: 'audio/mpeg',
       });
     });
 
@@ -167,6 +171,7 @@ describe('Playlist Controller Unit Tests', () => {
       expect(result).toHaveLength(2);
       expect(result[0].title).toBe('Song 1');
       expect(result[0].url).toBe('https://example.com/music/song1.mp3');
+      expect(result[0].mime).toBe('audio/mpeg');
     });
 
     it('should handle network errors', async () => {
@@ -219,6 +224,10 @@ describe('Playlist Controller Unit Tests', () => {
       expect(result).toHaveLength(2);
       expect(result[0].title).toBe('Song1');
       expect(result[1].title).toBe('Song2');
+
+      // Verify MIME types are correctly set
+      expect(result[0].mime).toBe('audio/mpeg');
+      expect(result[1].mime).toBe('audio/mpeg');
 
       // Verify URLs are correctly formed
       expect(result[0].url).toContain('http://example.com/');

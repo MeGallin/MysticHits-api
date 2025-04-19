@@ -6,11 +6,21 @@ const { promisify } = require('util');
 
 const readdir = promisify(fs.readdir);
 
+// Supported audio MIME types for file extensions:
+const mimeTypes = {
+  mp3: 'audio/mpeg',
+  wav: 'audio/x-wav',
+  m4a: 'audio/mp4',
+  ogg: 'audio/ogg',
+  flac: 'audio/flac',
+  aac: 'audio/aac',
+};
+
 /**
  * Extract audio file links from HTML content
  * @param {string} html - HTML content
  * @param {string} baseUrl - Base URL for resolving relative paths
- * @returns {Array} - Array of track objects with title and url
+ * @returns {Array} - Array of track objects with title, url, and mime type
  */
 // Export for testing
 exports.extractMp3Links = (html, baseUrl) => {
@@ -29,13 +39,16 @@ exports.extractMp3Links = (html, baseUrl) => {
       // Resolve relative URLs and encode the full URL
       const fullUrl = encodeURI(new URL(href, baseUrl).href);
 
+      // Get the filename and extension
+      const fileName = href.split('/').pop();
+      const ext = path.extname(fileName).replace('.', '').toLowerCase();
+
       // Extract title from the link text or filename
       let title = $(element).text().trim();
       if (!title || title === href) {
         // If no meaningful text, use the filename without extension
-        const titleRaw = href.split('/').pop();
         title = decodeURIComponent(
-          titleRaw
+          fileName
             .replace(/\.[^/.]+$/, '') // strip extension
             .replace(/[-_]/g, ' '), // replace dashes/underscores with spaces
         )
@@ -44,7 +57,11 @@ exports.extractMp3Links = (html, baseUrl) => {
           .replace(/\b\w/g, (char) => char.toUpperCase());
       }
 
-      tracks.push({ title, url: fullUrl });
+      tracks.push({
+        title,
+        url: fullUrl,
+        mime: mimeTypes[ext] || 'audio/*',
+      });
     }
   });
 
@@ -140,7 +157,7 @@ exports.validateFolderPath = (folderPath) => {
  * Get playlist from local folder
  * @param {string} folderPath - Path to folder containing audio files
  * @param {object} req - Express request object for building URLs
- * @returns {Promise<Array>} - Array of track objects with title and url
+ * @returns {Promise<Array>} - Array of track objects with title, url, and mime type
  */
 // Export for testing
 exports.getPlaylistFromLocalFolder = async (folderPath, req) => {
@@ -162,10 +179,12 @@ exports.getPlaylistFromLocalFolder = async (folderPath, req) => {
     const tracks = files
       .filter((file) => supportedExtensions.test(file))
       .map((file) => {
+        // Get the extension
+        const ext = path.extname(file).replace('.', '').toLowerCase();
+
         // Create a title from the filename
-        const titleRaw = file;
         const title = decodeURIComponent(
-          titleRaw
+          file
             .replace(/\.[^/.]+$/, '') // strip extension
             .replace(/[-_]/g, ' '), // replace dashes/underscores with spaces
         )
@@ -184,7 +203,11 @@ exports.getPlaylistFromLocalFolder = async (folderPath, req) => {
         // Encode the URL
         const url = encodeURI(`${baseUrl}/${urlPath}`);
 
-        return { title, url };
+        return {
+          title,
+          url,
+          mime: mimeTypes[ext] || 'audio/*',
+        };
       });
 
     return tracks;

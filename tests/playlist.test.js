@@ -58,16 +58,21 @@ describe('Playlist API Routes', () => {
         'url',
         'https://example.com/music/song1.mp3',
       );
+      expect(res.body.data[0]).toHaveProperty('mime', 'audio/mpeg');
+
       expect(res.body.data[1]).toHaveProperty('title', 'Song 2');
       expect(res.body.data[1]).toHaveProperty(
         'url',
         'https://example.com/music/song2.mp3',
       );
+      expect(res.body.data[1]).toHaveProperty('mime', 'audio/mpeg');
+
       expect(res.body.data[2]).toHaveProperty('title', 'Song3');
       expect(res.body.data[2]).toHaveProperty(
         'url',
         'https://example.com/music/song3.mp3',
       );
+      expect(res.body.data[2]).toHaveProperty('mime', 'audio/mpeg');
     });
 
     it('should handle errors from remote URL', async () => {
@@ -104,6 +109,11 @@ describe('Playlist API Routes', () => {
       expect(res.body.data[0]).toHaveProperty('title', 'Song1');
       expect(res.body.data[1]).toHaveProperty('title', 'Song2');
       expect(res.body.data[2]).toHaveProperty('title', 'Song3');
+
+      // Check that MIME types are correctly set
+      expect(res.body.data[0]).toHaveProperty('mime', 'audio/mpeg');
+      expect(res.body.data[1]).toHaveProperty('mime', 'audio/mpeg');
+      expect(res.body.data[2]).toHaveProperty('mime', 'audio/mpeg');
 
       // Check that URLs are correctly formed - be flexible with slashes
       expect(res.body.data[0].url).toMatch(/public.*music.*song1\.mp3/);
