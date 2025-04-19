@@ -7,6 +7,7 @@ const connectDB = require('./config/db');
 const hitsRoutes = require('./routes/hits');
 const authRoutes = require('./routes/auth');
 const contactRoutes = require('./routes/contact');
+const playlistRoutes = require('./routes/playlist');
 
 const app = express();
 app.use(cors());
@@ -21,6 +22,7 @@ connectDB().catch((err) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/hits', hitsRoutes);
 app.use('/api/contact', contactRoutes);
+app.use('/api/playlist', playlistRoutes);
 
 const PORT = process.env.PORT || 8000;
 if (require.main === module) {
