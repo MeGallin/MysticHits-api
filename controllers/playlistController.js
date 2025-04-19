@@ -7,7 +7,7 @@ const { promisify } = require('util');
 const readdir = promisify(fs.readdir);
 
 /**
- * Extract MP3 links from HTML content
+ * Extract audio file links from HTML content
  * @param {string} html - HTML content
  * @param {string} baseUrl - Base URL for resolving relative paths
  * @returns {Array} - Array of track objects with title and url
@@ -17,24 +17,30 @@ exports.extractMp3Links = (html, baseUrl) => {
   const $ = cheerio.load(html);
   const tracks = [];
 
+  // Supported file extensions
+  const supportedExtensions = /\.(mp3|wav|m4a|ogg|flac|aac)$/i;
+
   // Find all links (a tags) in the HTML
   $('a').each((i, element) => {
     const href = $(element).attr('href');
 
-    // Check if the link points to an MP3 file
-    if (href && href.toLowerCase().endsWith('.mp3')) {
-      // Resolve relative URLs
-      const fullUrl = new URL(href, baseUrl).toString();
+    // Check if the link points to a supported audio file
+    if (href && supportedExtensions.test(href)) {
+      // Resolve relative URLs and encode the full URL
+      const fullUrl = encodeURI(new URL(href, baseUrl).href);
 
       // Extract title from the link text or filename
       let title = $(element).text().trim();
       if (!title || title === href) {
         // If no meaningful text, use the filename without extension
-        const fileExt = path.extname(href);
-        const baseName = path.basename(href, fileExt);
-        // Convert dashes and underscores to spaces and capitalize words
-        title = baseName
-          .replace(/[-_]/g, ' ')
+        const titleRaw = href.split('/').pop();
+        title = decodeURIComponent(
+          titleRaw
+            .replace(/\.[^/.]+$/, '') // strip extension
+            .replace(/[-_]/g, ' '), // replace dashes/underscores with spaces
+        )
+          .trim()
+          // Capitalize first letter of each word
           .replace(/\b\w/g, (char) => char.toUpperCase());
       }
 
@@ -132,7 +138,7 @@ exports.validateFolderPath = (folderPath) => {
 
 /**
  * Get playlist from local folder
- * @param {string} folderPath - Path to folder containing MP3 files
+ * @param {string} folderPath - Path to folder containing audio files
  * @param {object} req - Express request object for building URLs
  * @returns {Promise<Array>} - Array of track objects with title and url
  */
@@ -149,15 +155,22 @@ exports.getPlaylistFromLocalFolder = async (folderPath, req) => {
     // Read the directory contents
     const files = await readdir(fullPath);
 
-    // Filter for MP3 files and create track objects
+    // Supported file extensions
+    const supportedExtensions = /\.(mp3|wav|m4a|ogg|flac|aac)$/i;
+
+    // Filter for supported audio files and create track objects
     const tracks = files
-      .filter((file) => file.toLowerCase().endsWith('.mp3'))
+      .filter((file) => supportedExtensions.test(file))
       .map((file) => {
-        // Create a title from the filename - handle case-insensitive extension
-        const fileExt = path.extname(file);
-        const baseName = path.basename(file, fileExt);
-        const title = baseName
-          .replace(/[-_]/g, ' ')
+        // Create a title from the filename
+        const titleRaw = file;
+        const title = decodeURIComponent(
+          titleRaw
+            .replace(/\.[^/.]+$/, '') // strip extension
+            .replace(/[-_]/g, ' '), // replace dashes/underscores with spaces
+        )
+          .trim()
+          // Capitalize first letter of each word
           .replace(/\b\w/g, (char) => char.toUpperCase());
 
         // Build the URL relative to the app domain
@@ -168,7 +181,8 @@ exports.getPlaylistFromLocalFolder = async (folderPath, req) => {
             /\\/g,
             '/',
           );
-        const url = `${baseUrl}/${urlPath}`;
+        // Encode the URL
+        const url = encodeURI(`${baseUrl}/${urlPath}`);
 
         return { title, url };
       });
@@ -212,6 +226,7 @@ exports.getPlaylist = async (req, res) => {
       data: tracks,
     });
   } catch (error) {
+    console.error('[Playlist Error]:', error.message);
     return res.status(500).json({
       success: false,
       message: error.message,
