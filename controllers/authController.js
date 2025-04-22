@@ -141,3 +141,12 @@ exports.login = async (req, res) => {
     res.status(500).json({ error: 'Server error.' });
   }
 };
+
+exports.logoutUser = (req, res) => {
+  // Since we're using localStorage on the frontend,
+  // we don't need to clear cookies on the server
+  return res.status(200).json({
+    success: true,
+    message: 'Logged out successfully.',
+  });
+};
