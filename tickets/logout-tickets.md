@@ -1,4 +1,3 @@
-
 # 🔒 Logout Functionality - Ticket Breakdown
 
 This document includes tickets and pseudocode for implementing logout functionality in both the backend (Node/Express) and frontend (React + JWT).
@@ -8,9 +7,11 @@ This document includes tickets and pseudocode for implementing logout functional
 ## ✅ Ticket 1: Backend - Create Logout Endpoint
 
 ### Description
+
 Create a logout endpoint that clears authentication state or provides a hook for future token revocation (if using cookies or refresh tokens).
 
 ### Tasks:
+
 - [ ] Add `logoutUser` function in `authController.js`
 - [ ] Create route `POST /api/auth/logout` and connect to controller
 - [ ] Optionally clear secure cookie (`res.clearCookie("token")`)
@@ -26,7 +27,7 @@ exports.logoutUser = (req, res) => {
 
   return res.status(200).json({
     success: true,
-    message: "Logged out successfully.",
+    message: 'Logged out successfully.',
   });
 };
 ```
@@ -41,9 +42,11 @@ router.post('/logout', authController.logoutUser);
 ## ✅ Ticket 2: Frontend - Implement Logout Handler
 
 ### Description
+
 Allow users to log out by clearing stored authentication tokens and optionally redirecting to the login or home page.
 
 ### Tasks:
+
 - [ ] Create utility function `logoutUser()` in `fetchService.js` or `auth.ts`
 - [ ] Clear token from localStorage or session
 - [ ] Redirect to login page
@@ -59,7 +62,7 @@ export function logoutUser() {
   // fetch("/api/auth/logout", { method: "POST" });
 
   // Redirect logic (depends on router)
-  window.location.href = "/login";
+re-direct to login page/view
 }
 ```
 
