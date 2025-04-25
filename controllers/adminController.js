@@ -18,9 +18,9 @@ exports.getUsers = async (req, res) => {
 exports.deleteUser = async (req, res) => {
   const { id } = req.params;
 
-  // Validate ID format
+  // Validate MongoDB ObjectId format
   if (!id.match(/^[0-9a-fA-F]{24}$/)) {
-    return res.status(400).json({ error: 'Invalid user ID format' });
+    return res.status(400).json({ error: 'Invalid user ID' });
   }
 
   try {
@@ -36,12 +36,12 @@ exports.deleteUser = async (req, res) => {
       return res.status(403).json({ error: 'Admin users cannot be deleted' });
     }
 
-    // Attempt to delete the user
+    // Delete the user
     await User.findByIdAndDelete(id);
 
     return res.status(200).json({
+      success: true,
       message: 'User deleted successfully',
-      userId: id,
     });
   } catch (error) {
     console.error('Error in delete user operation:', error);
