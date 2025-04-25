@@ -192,36 +192,28 @@ describe('Admin Controller - Delete User', () => {
   });
 
   test('Returns 500 if database delete operation fails', async () => {
-    // Save original methods
-    const originalFindById = User.findById;
-    const originalFindByIdAndDelete = User.findByIdAndDelete;
+    // Mock findById to return a non-admin user
+    const mockUser = {
+      _id: userToDelete._id,
+      isAdmin: false,
+      toObject: () => ({ ...mockUser }),
+    };
 
-    try {
-      // Create a mock non-admin user
-      const mockUser = {
-        _id: userToDelete._id,
-        isAdmin: false,
-      };
+    // Mock both database operations
+    jest.spyOn(User, 'findById').mockResolvedValueOnce(mockUser);
+    jest
+      .spyOn(User, 'findByIdAndDelete')
+      .mockRejectedValueOnce(new Error('Database delete error'));
 
-      // Mock findById to return the mock user
-      User.findById = jest.fn().mockResolvedValue(mockUser);
+    const response = await request(app)
+      .delete(`/api/admin/users/${userToDelete._id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
 
-      // Mock findByIdAndDelete to throw an error
-      User.findByIdAndDelete = jest
-        .fn()
-        .mockRejectedValue(new Error('Database delete error'));
+    expect(response.statusCode).toBe(500);
+    expect(response.body.error).toBe('Failed to delete user');
 
-      const response = await request(app)
-        .delete(`/api/admin/users/${userToDelete._id}`)
-        .set('Authorization', `Bearer ${adminToken}`);
-
-      expect(response.statusCode).toBe(500);
-      expect(response.body.error).toBe('Failed to delete user');
-    } finally {
-      // Restore original methods
-      User.findById = originalFindById;
-      User.findByIdAndDelete = originalFindByIdAndDelete;
-    }
+    // Restore the mocks
+    jest.restoreAllMocks();
   });
 });
 
