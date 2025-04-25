@@ -28,10 +28,22 @@ exports.signup = async (req, res) => {
       password: hashedPassword,
     });
     // Generate JWT
-    const token = jwt.sign({ userId: user._id }, JWT_SECRET, {
-      expiresIn: JWT_EXPIRES_IN,
+    const token = jwt.sign(
+      {
+        userId: user._id,
+        email: user.email,
+        isAdmin: user.isAdmin || false,
+      },
+      JWT_SECRET,
+      {
+        expiresIn: JWT_EXPIRES_IN,
+      },
+    );
+    res.status(201).json({
+      token,
+      userId: user._id,
+      isAdmin: user.isAdmin || false,
     });
-    res.status(201).json({ token, userId: user._id });
   } catch (err) {
     res.status(500).json({ error: 'Server error.' });
   }
@@ -133,10 +145,22 @@ exports.login = async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials.' });
     }
     // Generate JWT
-    const token = jwt.sign({ userId: user._id }, JWT_SECRET, {
-      expiresIn: JWT_EXPIRES_IN,
+    const token = jwt.sign(
+      {
+        userId: user._id,
+        email: user.email,
+        isAdmin: user.isAdmin || false,
+      },
+      JWT_SECRET,
+      {
+        expiresIn: JWT_EXPIRES_IN,
+      },
+    );
+    res.json({
+      token,
+      userId: user._id,
+      isAdmin: user.isAdmin || false,
     });
-    res.json({ token, userId: user._id });
   } catch (err) {
     res.status(500).json({ error: 'Server error.' });
   }
