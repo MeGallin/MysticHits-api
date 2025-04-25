@@ -12,6 +12,9 @@ router.get('/users', adminController.getUsers);
 // DELETE a user by ID - protected for admins only
 router.delete('/users/:id', adminController.deleteUser);
 
+// PATCH change user role - protected for admins only
+router.patch('/users/:id/role', adminController.changeUserRole);
+
 // GET system statistics - protected for admins only
 router.get('/stats', adminController.getStats);
 
