@@ -55,6 +55,47 @@ exports.deleteUser = async (req, res) => {
   }
 };
 
+// Change user role (promote/demote admin status)
+exports.changeUserRole = async (req, res) => {
+  const { id } = req.params;
+  const { isAdmin } = req.body;
+
+  // Validate isAdmin is boolean
+  if (typeof isAdmin !== 'boolean') {
+    return res.status(422).json({ error: 'isAdmin boolean required' });
+  }
+
+  // Validate MongoDB ObjectId format
+  if (!id.match(/^[0-9a-fA-F]{24}$/)) {
+    return res.status(400).json({ error: 'Invalid user ID format' });
+  }
+
+  try {
+    // Find and update user
+    const user = await User.findByIdAndUpdate(
+      id,
+      { isAdmin },
+      {
+        new: true,
+        select: '-password -resetPasswordToken -resetPasswordExpires',
+      },
+    );
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      success: true,
+      data: user,
+      message: `User ${isAdmin ? 'promoted to' : 'demoted from'} admin role`,
+    });
+  } catch (error) {
+    console.error('Error changing user role:', error);
+    res.status(500).json({ error: 'Failed to change user role' });
+  }
+};
+
 // Get system statistics
 exports.getStats = async (req, res) => {
   try {

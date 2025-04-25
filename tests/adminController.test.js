@@ -299,3 +299,106 @@ describe('Admin Controller - View Stats', () => {
     }
   });
 });
+
+describe('Admin Controller - Change User Role', () => {
+  let adminUser;
+  let regularUser;
+  let adminToken;
+
+  beforeEach(async () => {
+    await User.deleteMany({});
+
+    // Create an admin user
+    adminUser = new User({
+      username: 'adminuser',
+      email: 'admin@example.com',
+      password: 'password123',
+      isAdmin: true,
+    });
+    await adminUser.save();
+
+    // Create a regular user
+    regularUser = new User({
+      username: 'regularuser',
+      email: 'regular@example.com',
+      password: 'password123',
+      isAdmin: false,
+    });
+    await regularUser.save();
+
+    // Create admin token
+    adminToken = jwt.sign({ userId: adminUser._id.toString() }, JWT_SECRET);
+  });
+
+  test('PATCH /api/admin/users/:id/role should promote user to admin', async () => {
+    const response = await request(app)
+      .patch(`/api/admin/users/${regularUser._id}/role`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ isAdmin: true });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.isAdmin).toBe(true);
+    expect(response.body.message).toBe('User promoted to admin role');
+
+    // Verify in database
+    const updatedUser = await User.findById(regularUser._id);
+    expect(updatedUser.isAdmin).toBe(true);
+  });
+
+  test('PATCH /api/admin/users/:id/role should demote admin to regular user', async () => {
+    // First create another admin user
+    const anotherAdmin = new User({
+      username: 'anotheradmin',
+      email: 'another@example.com',
+      password: 'password123',
+      isAdmin: true,
+    });
+    await anotherAdmin.save();
+
+    const response = await request(app)
+      .patch(`/api/admin/users/${anotherAdmin._id}/role`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ isAdmin: false });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.isAdmin).toBe(false);
+    expect(response.body.message).toBe('User demoted from admin role');
+
+    // Verify in database
+    const updatedUser = await User.findById(anotherAdmin._id);
+    expect(updatedUser.isAdmin).toBe(false);
+  });
+
+  test('Should return 422 if isAdmin is not a boolean', async () => {
+    const response = await request(app)
+      .patch(`/api/admin/users/${regularUser._id}/role`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ isAdmin: 'true' }); // Sending string instead of boolean
+
+    expect(response.statusCode).toBe(422);
+    expect(response.body.error).toBe('isAdmin boolean required');
+  });
+
+  test('Should return 400 if user ID format is invalid', async () => {
+    const response = await request(app)
+      .patch('/api/admin/users/invalid-id/role')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ isAdmin: true });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body.error).toBe('Invalid user ID format');
+  });
+
+  test('Should return 404 if user is not found', async () => {
+    const nonExistentId = new mongoose.Types.ObjectId();
+    const response = await request(app)
+      .patch(`/api/admin/users/${nonExistentId}/role`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ isAdmin: true });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.body.error).toBe('User not found');
+  });
+});
