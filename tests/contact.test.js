@@ -14,6 +14,7 @@ jest.mock('../utils/emailSender', () => ({
 const TEST_CONTACT = {
   fullName: 'Test User',
   email: 'test@example.com',
+  subject: 'Test Subject',
   message: 'This is a test message',
 };
 
@@ -59,6 +60,7 @@ describe('Contact API', () => {
     expect(contacts).toHaveLength(1);
     expect(contacts[0].fullName).toBe(TEST_CONTACT.fullName);
     expect(contacts[0].email).toBe(TEST_CONTACT.email);
+    expect(contacts[0].subject).toBe(TEST_CONTACT.subject);
     expect(contacts[0].message).toBe(TEST_CONTACT.message);
     expect(contacts[0].ipAddress).toBeDefined();
 
@@ -68,7 +70,26 @@ describe('Contact API', () => {
     expect(emailCall.subject).toContain('Contact Form Submission');
     expect(emailCall.text).toContain(TEST_CONTACT.fullName);
     expect(emailCall.text).toContain(TEST_CONTACT.email);
+    expect(emailCall.text).toContain(TEST_CONTACT.subject);
     expect(emailCall.text).toContain(TEST_CONTACT.message);
+  });
+
+  it('should use default subject if not provided', async () => {
+    const contactWithoutSubject = {
+      fullName: TEST_CONTACT.fullName,
+      email: TEST_CONTACT.email,
+      message: TEST_CONTACT.message,
+    };
+
+    const res = await request(app)
+      .post('/api/contact')
+      .send(contactWithoutSubject)
+      .expect(201);
+
+    // Verify contact was saved with default subject
+    const contacts = await ContactMessage.find();
+    expect(contacts).toHaveLength(1);
+    expect(contacts[0].subject).toBe('No Subject');
   });
 
   it('should return 400 if required fields are missing', async () => {

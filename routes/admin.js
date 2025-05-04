@@ -17,5 +17,11 @@ router.patch('/users/:id/role', adminController.changeUserRole);
 
 // GET system statistics - protected for admins only
 router.get('/stats', adminController.getStats);
+console.log('Admin routes loaded');
+// Contact message management routes
+router.get('/messages', adminController.getMessages);
+router.get('/messages/:id', adminController.getMessage);
+router.patch('/messages/:id', adminController.updateMessage);
+router.delete('/messages/:id', adminController.deleteMessage);
 
 module.exports = router;
