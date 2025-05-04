@@ -3,7 +3,7 @@ const { sendEmail } = require('../utils/emailSender');
 
 exports.submitContact = async (req, res) => {
   try {
-    const { fullName, email, message } = req.body;
+    const { fullName, email, message, subject } = req.body;
 
     // Validate input
     if (!fullName || !email || !message) {
@@ -16,6 +16,7 @@ exports.submitContact = async (req, res) => {
     const contact = new ContactMessage({
       fullName,
       email,
+      subject: subject || 'No Subject',
       message,
       ipAddress,
     });
@@ -25,12 +26,13 @@ exports.submitContact = async (req, res) => {
     try {
       await sendEmail({
         to: process.env.ADMIN_EMAIL || 'admin@mystichits.com',
-        subject: 'New Contact Form Submission',
+        subject: `New Contact Form Submission: ${subject || 'No Subject'}`,
         text: `
           New contact form submission:
           
           Name: ${fullName}
           Email: ${email}
+          Subject: ${subject || 'No Subject'}
           Message: ${message}
           
           Submitted at: ${new Date().toLocaleString()}
