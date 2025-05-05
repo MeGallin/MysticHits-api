@@ -10,6 +10,7 @@ const contactRoutes = require('./routes/contact');
 const playlistRoutes = require('./routes/playlist');
 const adminRoutes = require('./routes/admin');
 const healthRoutes = require('./routes/health');
+const chartsRoutes = require('./routes/charts');
 
 const app = express();
 app.use(cors());
@@ -27,6 +28,7 @@ app.use('/api/contact', contactRoutes);
 app.use('/api/playlist', playlistRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/health', healthRoutes);
+app.use('/api/charts', chartsRoutes);
 
 const PORT = process.env.PORT || 8000;
 if (require.main === module) {
