@@ -1,6 +1,15 @@
 const mongoose = require('mongoose');
 const crypto = require('crypto');
 
+const folderSchema = new mongoose.Schema(
+  {
+    label: { type: String, required: true },
+    path: { type: String, required: true }, // local sub-path OR remote URL
+    created: { type: Date, default: Date.now },
+  },
+  { _id: true },
+);
+
 const userSchema = new mongoose.Schema(
   {
     username: {
@@ -29,6 +38,7 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    folders: [folderSchema],
   },
   { timestamps: true },
 );
