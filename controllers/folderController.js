@@ -32,20 +32,26 @@ exports.listFolders = async (req, res) => {
     if (uid) {
       const authCheck = assertOwnerOrAdmin(req, uid);
       if (authCheck !== true) {
-        return res.status(authCheck.status).json({ error: authCheck.error });
+        return res
+          .status(authCheck.status)
+          .json({ success: false, error: authCheck.error });
       }
     }
 
     const user = await User.findById(targetId, 'folders');
 
     if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    res.json(user.folders);
+    // Return with success flag and data property for consistent frontend handling
+    res.json({
+      success: true,
+      data: user.folders || [],
+    });
   } catch (error) {
     console.error('Error listing folders:', error);
-    res.status(500).json({ error: 'Failed to list folders' });
+    res.status(500).json({ success: false, error: 'Failed to list folders' });
   }
 };
 
@@ -61,20 +67,24 @@ exports.addFolder = async (req, res) => {
 
     // Validate required fields
     if (!label || !path) {
-      return res.status(400).json({ error: 'label & path required' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'label & path required' });
     }
 
     // Validate folder count (max 50 per user)
     const user = await User.findById(req.userId);
     if (user.folders && user.folders.length >= 50) {
-      return res.status(400).json({ error: 'Maximum of 50 folders reached' });
+      return res
+        .status(400)
+        .json({ success: false, error: 'Maximum of 50 folders reached' });
     }
 
     // Quick path validation
     try {
       path.startsWith('http') ? validateUrl(path) : validateFolderPath(path);
     } catch (e) {
-      return res.status(400).json({ error: e.message });
+      return res.status(400).json({ success: false, error: e.message });
     }
 
     // Add the new folder and return it
@@ -86,10 +96,13 @@ exports.addFolder = async (req, res) => {
 
     // Return just the newly added folder (last one in the array)
     const newFolder = updatedUser.folders[updatedUser.folders.length - 1];
-    res.status(201).json(newFolder);
+    res.status(201).json({
+      success: true,
+      data: newFolder,
+    });
   } catch (error) {
     console.error('Error adding folder:', error);
-    res.status(500).json({ error: 'Failed to add folder' });
+    res.status(500).json({ success: false, error: 'Failed to add folder' });
   }
 };
 
@@ -111,13 +124,17 @@ exports.updateFolder = async (req, res) => {
     );
 
     if (!user) {
-      return res.status(404).json({ error: 'Folder not found' });
+      return res
+        .status(404)
+        .json({ success: false, error: 'Folder not found' });
     }
 
     // Check if user has permission to update this folder
     const authCheck = assertOwnerOrAdmin(req, user._id);
     if (authCheck !== true) {
-      return res.status(authCheck.status).json({ error: authCheck.error });
+      return res
+        .status(authCheck.status)
+        .json({ success: false, error: authCheck.error });
     }
 
     // Validate path if provided
@@ -125,7 +142,7 @@ exports.updateFolder = async (req, res) => {
       try {
         path.startsWith('http') ? validateUrl(path) : validateFolderPath(path);
       } catch (e) {
-        return res.status(400).json({ error: e.message });
+        return res.status(400).json({ success: false, error: e.message });
       }
     }
 
@@ -143,7 +160,7 @@ exports.updateFolder = async (req, res) => {
     res.json({ success: true, message: 'Folder updated successfully' });
   } catch (error) {
     console.error('Error updating folder:', error);
-    res.status(500).json({ error: 'Failed to update folder' });
+    res.status(500).json({ success: false, error: 'Failed to update folder' });
   }
 };
 
@@ -164,13 +181,17 @@ exports.deleteFolder = async (req, res) => {
     );
 
     if (!user) {
-      return res.status(404).json({ error: 'Folder not found' });
+      return res
+        .status(404)
+        .json({ success: false, error: 'Folder not found' });
     }
 
     // Check if user has permission to delete this folder
     const authCheck = assertOwnerOrAdmin(req, user._id);
     if (authCheck !== true) {
-      return res.status(authCheck.status).json({ error: authCheck.error });
+      return res
+        .status(authCheck.status)
+        .json({ success: false, error: authCheck.error });
     }
 
     // Remove the folder
@@ -182,7 +203,7 @@ exports.deleteFolder = async (req, res) => {
     res.json({ success: true, message: 'Folder deleted successfully' });
   } catch (error) {
     console.error('Error deleting folder:', error);
-    res.status(500).json({ error: 'Failed to delete folder' });
+    res.status(500).json({ success: false, error: 'Failed to delete folder' });
   }
 };
 
@@ -203,13 +224,17 @@ exports.playFolder = async (req, res) => {
     );
 
     if (!user) {
-      return res.status(404).json({ error: 'Folder not found' });
+      return res
+        .status(404)
+        .json({ success: false, error: 'Folder not found' });
     }
 
     // Check if user has permission to access this folder
     const authCheck = assertOwnerOrAdmin(req, user._id);
     if (authCheck !== true) {
-      return res.status(authCheck.status).json({ error: authCheck.error });
+      return res
+        .status(authCheck.status)
+        .json({ success: false, error: authCheck.error });
     }
 
     const { path } = user.folders[0];
@@ -226,11 +251,12 @@ exports.playFolder = async (req, res) => {
 
     res.json({
       success: true,
-      count: tracks.length,
       data: tracks,
     });
   } catch (error) {
     console.error('Error fetching folder playlist:', error);
-    res.status(500).json({ error: 'Failed to fetch playlist from folder' });
+    res
+      .status(500)
+      .json({ success: false, error: 'Failed to fetch playlist from folder' });
   }
 };
