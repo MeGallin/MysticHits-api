@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { sendPasswordResetEmail } = require('../utils/emailSender');
+const LoginEvent = require('../models/LoginEvent');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'changeme';
 const JWT_EXPIRES_IN = '7d';
@@ -144,6 +145,13 @@ exports.login = async (req, res) => {
     if (!match) {
       return res.status(401).json({ error: 'Invalid credentials.' });
     }
+
+    // Log login event
+    await LoginEvent.create({
+      userId: user._id,
+      ip: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+    });
+
     // Generate JWT
     const token = jwt.sign(
       {

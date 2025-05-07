@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { getPlaylist } = require('../controllers/playlistController');
+const { getPlaylist, logPlay } = require('../controllers/playlistController');
+const auth = require('../middleware/auth');
 
 /**
  * @route   GET /api/playlist
@@ -8,5 +9,12 @@ const { getPlaylist } = require('../controllers/playlistController');
  * @access  Public
  */
 router.get('/', getPlaylist);
+
+/**
+ * @route   POST /api/playlist/plays
+ * @desc    Log a track play event
+ * @access  Private (requires authentication)
+ */
+router.post('/plays', auth, logPlay);
 
 module.exports = router;
