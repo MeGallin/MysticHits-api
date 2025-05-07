@@ -10,4 +10,7 @@ const loginSchema = new Schema({
 // Add TTL index (30 days = 2592000 seconds)
 loginSchema.index({ at: 1 }, { expireAfterSeconds: 2592000 });
 
+// Add compound index for better performance on date range queries
+loginSchema.index({ at: 1, userId: 1 });
+
 module.exports = mongoose.model('LoginEvent', loginSchema);

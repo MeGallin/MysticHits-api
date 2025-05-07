@@ -17,6 +17,14 @@ router.patch('/users/:id/role', adminController.changeUserRole);
 
 // GET system statistics - protected for admins only
 router.get('/stats', adminController.getStats);
+
+// NEW ENDPOINTS - User data aggregation
+// GET daily/weekly active user counts
+router.get('/stats/dau', adminController.getDailyActiveUsers);
+
+// GET top tracks with customizable parameters
+router.get('/stats/top-tracks', adminController.getTopTracks);
+
 console.log('Admin routes loaded');
 // Contact message management routes
 router.get('/messages', adminController.getMessages);
