@@ -13,4 +13,9 @@ const playSchema = new Schema({
 // Add TTL index (30 days = 2592000 seconds)
 playSchema.index({ startedAt: 1 }, { expireAfterSeconds: 2592000 });
 
+// Add compound index for better performance on date range queries
+playSchema.index({ startedAt: 1, userId: 1 });
+// Add compound index for top tracks aggregation
+playSchema.index({ startedAt: 1, trackUrl: 1 });
+
 module.exports = mongoose.model('PlayEvent', playSchema);

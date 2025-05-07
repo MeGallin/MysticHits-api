@@ -1,6 +1,10 @@
 const User = require('../models/User');
 const Hit = require('../models/Hit');
 const ContactMessage = require('../models/ContactMessage');
+const cache = require('../lib/cache');
+const { getStartOfDay, getStartOfWeek, getDaysAgo } = require('../lib/agg');
+const LoginEvent = require('../models/LoginEvent');
+const PlayEvent = require('../models/PlayEvent');
 
 // Get all users with sensitive fields filtered out
 exports.getUsers = async (req, res) => {
@@ -279,5 +283,148 @@ exports.deleteMessage = async (req, res) => {
   } catch (error) {
     console.error('Error deleting message:', error);
     return res.status(500).json({ error: 'Failed to delete message' });
+  }
+};
+
+/**
+ * Get Daily and Weekly Active Users
+ * Returns count of unique users who logged in during the last day and week
+ * @route GET /api/admin/stats/dau
+ * @access Private (Admin only)
+ */
+exports.getDailyActiveUsers = async (req, res) => {
+  try {
+    // Check cache first
+    const cacheKey = 'admin:stats:dau';
+    const cachedData = cache.get(cacheKey);
+
+    if (cachedData) {
+      return res.status(200).json(cachedData);
+    }
+
+    // If not cached, calculate the values
+    const oneDayAgo = getDaysAgo(1);
+    const sevenDaysAgo = getDaysAgo(7);
+
+    // Get daily active users (unique users in the last 24h)
+    const dauResult = await LoginEvent.aggregate([
+      {
+        $match: {
+          at: { $gte: oneDayAgo },
+        },
+      },
+      {
+        $group: {
+          _id: '$userId',
+        },
+      },
+      {
+        $count: 'count',
+      },
+    ]);
+
+    // Get weekly active users (unique users in the last 7 days)
+    const wauResult = await LoginEvent.aggregate([
+      {
+        $match: {
+          at: { $gte: sevenDaysAgo },
+        },
+      },
+      {
+        $group: {
+          _id: '$userId',
+        },
+      },
+      {
+        $count: 'count',
+      },
+    ]);
+
+    // Format the result
+    const result = {
+      dau: dauResult.length > 0 ? dauResult[0].count : 0,
+      wau: wauResult.length > 0 ? wauResult[0].count : 0,
+      updated: new Date().toISOString(),
+    };
+
+    // Cache the result for 10 minutes
+    cache.set(cacheKey, result, 600); // 10 minutes in seconds
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('Error fetching active user stats:', error);
+    return res
+      .status(500)
+      .json({ error: 'Failed to fetch active user statistics' });
+  }
+};
+
+/**
+ * Get Top Tracks
+ * Returns the most played tracks in a given time window
+ * @route GET /api/admin/stats/top-tracks
+ * @access Private (Admin only)
+ */
+exports.getTopTracks = async (req, res) => {
+  try {
+    // Parse and validate query parameters
+    const days = parseInt(req.query.days) || 7;
+    const limit = Math.min(parseInt(req.query.limit) || 10, 50); // Cap at 50
+
+    if (days < 1 || days > 30) {
+      return res
+        .status(400)
+        .json({ error: 'Days parameter must be between 1 and 30' });
+    }
+
+    // Create cache key based on parameters
+    const cacheKey = `admin:stats:top-tracks:${days}:${limit}`;
+    const cachedData = cache.get(cacheKey);
+
+    if (cachedData) {
+      return res.status(200).json(cachedData);
+    }
+
+    // If not cached, calculate the values
+    const daysAgo = getDaysAgo(days);
+
+    const topTracks = await PlayEvent.aggregate([
+      {
+        $match: {
+          startedAt: { $gte: daysAgo },
+        },
+      },
+      {
+        $group: {
+          _id: '$trackUrl',
+          count: { $sum: 1 },
+          title: { $first: '$title' },
+          // We're getting the first occurrence's title
+          // In a more complex setup, we might want to join with a Track collection
+        },
+      },
+      {
+        $sort: { count: -1 },
+      },
+      {
+        $limit: limit,
+      },
+      {
+        $project: {
+          _id: 0,
+          trackUrl: '$_id',
+          title: 1,
+          count: 1,
+        },
+      },
+    ]);
+
+    // Cache the result for 30 minutes
+    cache.set(cacheKey, topTracks, 1800); // 30 minutes in seconds
+
+    return res.status(200).json(topTracks);
+  } catch (error) {
+    console.error('Error fetching top tracks:', error);
+    return res.status(500).json({ error: 'Failed to fetch top tracks' });
   }
 };
