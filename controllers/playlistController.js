@@ -3,6 +3,7 @@ const cheerio = require('cheerio');
 const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
+const PlayEvent = require('../models/PlayEvent');
 
 const readdir = promisify(fs.readdir);
 
@@ -254,5 +255,28 @@ exports.getPlaylist = async (req, res) => {
       success: false,
       message: error.message,
     });
+  }
+};
+
+// Log a play event
+exports.logPlay = async (req, res) => {
+  const { trackUrl, title, duration } = req.body;
+
+  if (!trackUrl) {
+    return res.status(400).json({ error: 'trackUrl required' });
+  }
+
+  try {
+    await PlayEvent.create({
+      userId: req.userId,
+      trackUrl,
+      title,
+      duration,
+    });
+
+    res.status(201).json({ success: true });
+  } catch (error) {
+    console.error('Error logging play event:', error);
+    res.status(500).json({ error: 'Server error, failed to log play event' });
   }
 };
