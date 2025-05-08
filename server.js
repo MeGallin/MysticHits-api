@@ -23,6 +23,7 @@ app.use(
       const allowedOrigins = [
         'http://localhost:5173',
         'https://mystichits.com',
+        'https://www.mystichits.com', // Added www subdomain
       ];
       if (!origin || allowedOrigins.indexOf(origin) !== -1) {
         callback(null, true);
