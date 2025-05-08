@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { sendPasswordResetEmail } = require('../utils/emailSender');
+const { hashIp } = require('../utils/ipHasher');
 const LoginEvent = require('../models/LoginEvent');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'changeme';
@@ -146,10 +147,14 @@ exports.login = async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials.' });
     }
 
-    // Log login event
+    // Get IP address from headers or connection
+    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+
+    // Log login event with hashed IP
     await LoginEvent.create({
       userId: user._id,
-      ip: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+      ipHash: hashIp(ip),
+      // No longer storing raw IP
     });
 
     // Generate JWT
