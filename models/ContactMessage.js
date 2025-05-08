@@ -5,10 +5,10 @@ const contactSchema = new mongoose.Schema({
   email: { type: String, required: true },
   subject: { type: String, default: 'No Subject' },
   message: { type: String, required: true },
-  ipAddress: { type: String }, // optional, for tracking/rate-limit
+  ipHash: { type: String, length: 64 }, // Hashed IP - 64 chars (SHA-256 hex)
   submittedAt: { type: Date, default: Date.now },
   read: { type: Boolean, default: false },
-  important: { type: Boolean, default: false }
+  important: { type: Boolean, default: false },
 });
 
 module.exports = mongoose.model('ContactMessage', contactSchema);

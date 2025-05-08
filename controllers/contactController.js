@@ -1,5 +1,6 @@
 const ContactMessage = require('../models/ContactMessage');
 const { sendEmail } = require('../utils/emailSender');
+const { hashIp } = require('../utils/ipHasher');
 
 exports.submitContact = async (req, res) => {
   try {
@@ -13,12 +14,15 @@ exports.submitContact = async (req, res) => {
     const ipAddress =
       req.headers['x-forwarded-for'] || req.connection.remoteAddress;
 
+    // Hash the IP before storing
+    const ipHash = hashIp(ipAddress);
+
     const contact = new ContactMessage({
       fullName,
       email,
       subject: subject || 'No Subject',
       message,
-      ipAddress,
+      ipHash,
     });
     await contact.save();
 
@@ -36,7 +40,6 @@ exports.submitContact = async (req, res) => {
           Message: ${message}
           
           Submitted at: ${new Date().toLocaleString()}
-          IP Address: ${ipAddress}
         `,
       });
     } catch (emailErr) {
