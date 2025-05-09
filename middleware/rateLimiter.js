@@ -14,7 +14,7 @@ const globalLimiter = rateLimit({
 // More strict rate limiter for sensitive endpoints like login/signup
 const authLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 10, // limit each IP to 10 login attempts per hour
+  max: 100, // limit each IP to 10 login attempts per hour
   message: {
     error: 'Too many login attempts, please try again later.',
   },
