@@ -26,7 +26,6 @@ router.get('/stats/dau', adminController.getDailyActiveUsers);
 // GET top tracks with customizable parameters
 router.get('/stats/top-tracks', adminController.getTopTracks);
 
-console.log('Admin routes loaded');
 // Contact message management routes
 router.get('/messages', adminController.getMessages);
 router.get('/messages/:id', adminController.getMessage);

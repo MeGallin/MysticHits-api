@@ -14,32 +14,22 @@ const LoginEvent = require('../models/LoginEvent');
 mongoose
   .connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/mystichits')
   .then(async () => {
-    console.log('Connected to MongoDB');
-
     try {
       // Create TTL indexes using the createIndexes() method
-      console.log('Creating TTL indexes on PlayEvent and LoginEvent collections...');
       
       // Explicitly create the indexes (though they're defined in the schema)
       await PlayEvent.createIndexes();
       await LoginEvent.createIndexes();
       
-      console.log('Verifying indexes...');
-      
       // Verify the indexes were created correctly
       const playEventIndexes = await mongoose.connection.db.collection('playevents').indexes();
       const loginEventIndexes = await mongoose.connection.db.collection('loginevents').indexes();
       
-      console.log('PlayEvent Indexes:', JSON.stringify(playEventIndexes, null, 2));
-      console.log('LoginEvent Indexes:', JSON.stringify(loginEventIndexes, null, 2));
-      
-      console.log('TTL indexes created successfully');
     } catch (error) {
       console.error('Error creating TTL indexes:', error);
     } finally {
       // Close the connection
       await mongoose.connection.close();
-      console.log('Disconnected from MongoDB');
       process.exit(0);
     }
   })
