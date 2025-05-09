@@ -25,6 +25,8 @@ router.get('/stats/dau', adminController.getDailyActiveUsers);
 
 // GET top tracks with customizable parameters
 router.get('/stats/top-tracks', adminController.getTopTracks);
+// Alternative route path as specified in BE-6 ticket
+router.get('/top-tracks', adminController.getTopTracks);
 
 // Contact message management routes
 router.get('/messages', adminController.getMessages);

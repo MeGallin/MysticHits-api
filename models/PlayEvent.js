@@ -17,5 +17,7 @@ playSchema.index({ startedAt: 1 }, { expireAfterSeconds: 2592000 });
 playSchema.index({ startedAt: 1, userId: 1 });
 // Add compound index for top tracks aggregation
 playSchema.index({ startedAt: 1, trackUrl: 1 });
+// Add userId and startedAt index for BE-4 spec
+playSchema.index({ userId: 1, startedAt: 1 });
 
 module.exports = mongoose.model('PlayEvent', playSchema);

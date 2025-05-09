@@ -2,7 +2,13 @@ const User = require('../models/User');
 const Hit = require('../models/Hit');
 const ContactMessage = require('../models/ContactMessage');
 const cache = require('../lib/cache');
-const { getStartOfDay, getStartOfWeek, getDaysAgo } = require('../lib/agg');
+const {
+  getStartOfDay,
+  getStartOfWeek,
+  getDaysAgo,
+  dayStart,
+  daysAgo,
+} = require('../lib/agg');
 const LoginEvent = require('../models/LoginEvent');
 const PlayEvent = require('../models/PlayEvent');
 
@@ -414,7 +420,7 @@ exports.getTopTracks = async (req, res) => {
           _id: 0,
           trackUrl: '$_id',
           title: 1,
-          count: 1,
+          plays: '$count', // Rename count to plays as per BE-6 spec
         },
       },
     ]);
@@ -426,5 +432,83 @@ exports.getTopTracks = async (req, res) => {
   } catch (error) {
     console.error('Error fetching top tracks:', error);
     return res.status(500).json({ error: 'Failed to fetch top tracks' });
+  }
+};
+
+/**
+ * Get Daily Active Users (DAU) and Weekly Active Users (WAU) stats
+ * Implements BE-5 - Endpoint /api/admin/stats/dau
+ * @route GET /api/admin/stats/dau
+ * @access Private/Admin
+ */
+exports.getDailyActiveUsers = async (req, res) => {
+  try {
+    const cacheKey = 'admin:dau-stats';
+
+    // Check if we have cached results
+    const cachedResult = cache.get(cacheKey);
+    if (cachedResult) {
+      return res.status(200).json(cachedResult);
+    }
+
+    // Get one day ago and seven days ago timestamps
+    const oneDayAgo = daysAgo(1);
+    const sevenDaysAgo = daysAgo(7);
+
+    // Aggregate daily active users (DAU)
+    const dauResult = await LoginEvent.aggregate([
+      {
+        $match: {
+          at: { $gte: oneDayAgo },
+        },
+      },
+      {
+        $group: {
+          _id: '$userId',
+          lastLogin: { $max: '$at' },
+        },
+      },
+      {
+        $count: 'dau',
+      },
+    ]);
+
+    // Aggregate weekly active users (WAU)
+    const wauResult = await LoginEvent.aggregate([
+      {
+        $match: {
+          at: { $gte: sevenDaysAgo },
+        },
+      },
+      {
+        $group: {
+          _id: '$userId',
+          lastLogin: { $max: '$at' },
+        },
+      },
+      {
+        $count: 'wau',
+      },
+    ]);
+
+    // Extract values or use 0 if no results
+    const dau = dauResult.length > 0 ? dauResult[0].dau : 0;
+    const wau = wauResult.length > 0 ? wauResult[0].wau : 0;
+
+    const result = {
+      dau,
+      wau,
+      updated: new Date(),
+    };
+
+    // Cache result for 10 minutes
+    cache.set(cacheKey, result, 600); // 10 minutes in seconds
+
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('Error fetching DAU/WAU stats:', error);
+    return res
+      .status(500)
+      .json({ error: 'Failed to fetch user activity stats' });
   }
 };

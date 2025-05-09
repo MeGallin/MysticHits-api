@@ -13,5 +13,7 @@ loginSchema.index({ at: 1 }, { expireAfterSeconds: 2592000 });
 
 // Add compound index for better performance on date range queries
 loginSchema.index({ at: 1, userId: 1 });
+// Add userId and at index for BE-4 spec
+loginSchema.index({ userId: 1, at: 1 });
 
 module.exports = mongoose.model('LoginEvent', loginSchema);
