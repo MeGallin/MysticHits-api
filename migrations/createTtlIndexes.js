@@ -1,6 +1,6 @@
 /**
  * Migration script to create TTL indexes on event collections
- * 
+ *
  * This script ensures that PlayEvent and LoginEvent collections
  * have proper TTL indexes set for auto-expiring documents after 30 days.
  */
@@ -16,15 +16,18 @@ mongoose
   .then(async () => {
     try {
       // Create TTL indexes using the createIndexes() method
-      
+
       // Explicitly create the indexes (though they're defined in the schema)
       await PlayEvent.createIndexes();
       await LoginEvent.createIndexes();
-      
+
       // Verify the indexes were created correctly
-      const playEventIndexes = await mongoose.connection.db.collection('playevents').indexes();
-      const loginEventIndexes = await mongoose.connection.db.collection('loginevents').indexes();
-      
+      const playEventIndexes = await mongoose.connection.db
+        .collection('playevents')
+        .indexes();
+      const loginEventIndexes = await mongoose.connection.db
+        .collection('loginevents')
+        .indexes();
     } catch (error) {
       console.error('Error creating TTL indexes:', error);
     } finally {
