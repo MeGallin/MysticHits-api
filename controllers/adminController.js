@@ -512,3 +512,54 @@ exports.getDailyActiveUsers = async (req, res) => {
       .json({ error: 'Failed to fetch user activity stats' });
   }
 };
+
+/**
+ * @desc Get page view statistics
+ * @route GET /api/admin/stats/pageviews
+ * @access Private/Admin
+ */
+exports.getPageViewsStats = async (req, res, next) => {
+  try {
+    const { days } = req.query;
+    const cacheKey = `pageviews_stats_${days || 'lifetime'}`;
+
+    const cachedData = cache.get(cacheKey);
+    if (cachedData) {
+      return res.json(cachedData);
+    }
+
+    let matchStage = {};
+    let period = 'lifetime';
+
+    if (days) {
+      const daysNum = parseInt(days, 10);
+      if (isNaN(daysNum) || daysNum <= 0) {
+        return res.status(400).json({ message: 'Invalid days parameter' });
+      }
+      matchStage = { lastHitAt: { $gte: getDaysAgo(daysNum) } };
+      period = daysNum === 1 ? '24h' : `${daysNum}d`;
+    }
+
+    const totalHitsAgg = await Hit.aggregate([
+      { $match: matchStage },
+      { $group: { _id: null, total: { $sum: '$hitCount' } } },
+    ]);
+
+    const uniqueIPs = await Hit.countDocuments(matchStage);
+
+    const pageViews = totalHitsAgg.length > 0 ? totalHitsAgg[0].total : 0;
+
+    const response = {
+      pageViews,
+      uniqueIPs,
+      period,
+      updatedAt: new Date().toISOString(),
+    };
+
+    cache.set(cacheKey, response, 600); // Cache for 10 minutes
+
+    res.json(response);
+  } catch (error) {
+    next(error);
+  }
+};
