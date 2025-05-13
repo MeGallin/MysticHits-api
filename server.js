@@ -38,21 +38,11 @@ app.use(
         'https://www.mystichits.com',
         'http://mystichits.com',
         'http://www.mystichits.com',
+        'https://mystichits.onrender.com', // Add the render.com domain
       ];
 
-      // For development/debugging purposes, log the origin
-      // console.log('Request origin:', origin);
-
-      if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-        callback(null, true);
-      } else {
-        // In production, we might want to be more permissive
-        // This allows the frontend to access the API regardless of where it's hosted
-        callback(null, true);
-
-        // Alternatively, if you want to be more restrictive:
-        // callback(new Error('Not allowed by CORS'));
-      }
+      // Always allow the request, regardless of origin
+      callback(null, origin || true);
     },
     credentials: true, // Allow credentials (cookies, authorization headers)
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -60,6 +50,13 @@ app.use(
     exposedHeaders: ['Access-Control-Allow-Origin'],
   }),
 );
+
+// Add a middleware to ensure CORS headers are present
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  next();
+});
 
 app.use(express.json());
 app.use(trackMetrics); // Track request metrics for all routes
