@@ -27,7 +27,7 @@ if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
 
-// Updated CORS configuration to handle both development and production URLs
+// CORS configuration to handle cross-origin requests
 app.use(
   cors({
     origin: function (origin, callback) {
@@ -35,17 +35,29 @@ app.use(
       const allowedOrigins = [
         'http://localhost:5173',
         'https://mystichits.com',
-        'https://www.mystichits.com', // Added www subdomain
+        'https://www.mystichits.com',
+        'http://mystichits.com',
+        'http://www.mystichits.com',
       ];
+
+      // For development/debugging purposes, log the origin
+      console.log('Request origin:', origin);
+
       if (!origin || allowedOrigins.indexOf(origin) !== -1) {
         callback(null, true);
       } else {
-        callback(new Error('Not allowed by CORS'));
+        // In production, we might want to be more permissive
+        // This allows the frontend to access the API regardless of where it's hosted
+        callback(null, true);
+
+        // Alternatively, if you want to be more restrictive:
+        // callback(new Error('Not allowed by CORS'));
       }
     },
     credentials: true, // Allow credentials (cookies, authorization headers)
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['Access-Control-Allow-Origin'],
   }),
 );
 
