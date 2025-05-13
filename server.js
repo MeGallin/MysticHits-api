@@ -41,7 +41,7 @@ app.use(
       ];
 
       // For development/debugging purposes, log the origin
-      console.log('Request origin:', origin);
+      // console.log('Request origin:', origin);
 
       if (!origin || allowedOrigins.indexOf(origin) !== -1) {
         callback(null, true);

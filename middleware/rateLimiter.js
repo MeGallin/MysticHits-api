@@ -1,32 +1,37 @@
+// rateLimiters.js
 const rateLimit = require('express-rate-limit');
+const ipRangeCheck = require('ip-range-check'); // tiny helper lib
+const WHITELIST = process.env.RATE_LIMIT_WHITELIST
+  ? process.env.RATE_LIMIT_WHITELIST.split(',').map((s) => s.trim())
+  : [];
 
-// Global rate limiter - 100 req / 15 min per IP
+console.log('Rate limit whitelist:', WHITELIST);
+
+function skipIfWhitelisted(req) {
+  return ipRangeCheck(req.ip, WHITELIST);
+}
+console.log('Rate limit whitelist:', WHITELIST);
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  message: {
-    error: 'Too many requests',
-  },
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests' },
+  skip: skipIfWhitelisted, // 👈 NEW
 });
 
-// More strict rate limiter for sensitive endpoints like login/signup
 const authLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 100, // limit each IP to 10 login attempts per hour
-  message: {
-    error: 'Too many login attempts, please try again later.',
-  },
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many login attempts, please try again later.' },
+  skip: skipIfWhitelisted, // 👈 NEW
 });
 
-// Contact form rate limiter
 const contactLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour window
-  max: 5, // limit each IP to 5 submissions per window
-  message: {
-    error: 'Too many contact requests, please try again later.',
-  },
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many contact requests, please try again later.' },
+  skip: skipIfWhitelisted, // 👈 NEW
 });
 
 module.exports = { globalLimiter, authLimiter, contactLimiter };
