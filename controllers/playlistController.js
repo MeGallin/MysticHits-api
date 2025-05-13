@@ -15,6 +15,7 @@ const mimeTypes = {
   ogg: 'audio/ogg',
   flac: 'audio/flac',
   aac: 'audio/aac',
+  mp4: 'video/mp4',
 };
 
 /**
@@ -29,7 +30,7 @@ exports.extractMp3Links = (html, baseUrl) => {
   const tracks = [];
 
   // Supported file extensions
-  const supportedExtensions = /\.(mp3|wav|m4a|ogg|flac|aac)$/i;
+  const supportedExtensions = /\.(mp3|wav|m4a|ogg|flac|aac|mp4)$/i;
 
   // Find all links (a tags) in the HTML
   $('a').each((i, element) => {
@@ -174,7 +175,7 @@ exports.getPlaylistFromLocalFolder = async (folderPath, req) => {
     const files = await readdir(fullPath);
 
     // Supported file extensions
-    const supportedExtensions = /\.(mp3|wav|m4a|ogg|flac|aac)$/i;
+    const supportedExtensions = /\.(mp3|wav|m4a|ogg|flac|aac|mp4)$/i;
 
     // Filter for supported audio files and create track objects
     const tracks = files
