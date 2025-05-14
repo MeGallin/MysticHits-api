@@ -1,11 +1,10 @@
 const mongoose = require('mongoose');
 
 const hitSchema = new mongoose.Schema({
-  ipHash: {
+  ip: {
     type: String,
     required: true,
     unique: true,
-    length: 64, // SHA-256 hex string length
   },
   hitCount: {
     type: Number,

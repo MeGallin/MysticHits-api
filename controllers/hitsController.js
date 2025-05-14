@@ -1,20 +1,37 @@
 const Hit = require('../models/Hit');
-const { hashIp } = require('../utils/ipHasher');
 
 exports.pageHits = async (req, res) => {
+  // Get client IP address
   const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-  const ipHash = hashIp(ip);
 
   try {
-    const hit = await Hit.findOne({ ipHash });
+    // Find or create hit record for this IP
+    let hit = await Hit.findOne({ ip });
 
     if (hit) {
+      // Update existing hit record
       hit.hitCount += 1;
       hit.lastHitAt = Date.now();
       await hit.save();
     } else {
-      const newHit = new Hit({ ipHash });
-      await newHit.save();
+      // Create new hit record
+      try {
+        const newHit = new Hit({ ip });
+        await newHit.save();
+      } catch (saveError) {
+        // Handle duplicate key error (race condition when multiple concurrent requests)
+        if (saveError.code === 11000) {
+          // MongoDB duplicate key error code
+          hit = await Hit.findOne({ ip });
+          if (hit) {
+            hit.hitCount += 1;
+            hit.lastHitAt = Date.now();
+            await hit.save();
+          }
+        } else {
+          throw saveError;
+        }
+      }
     }
 
     const uniqueHitCount = await Hit.countDocuments();
