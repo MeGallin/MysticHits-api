@@ -3,8 +3,7 @@ const Schema = mongoose.Schema;
 
 const loginSchema = new Schema({
   userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  ipHash: { type: String, length: 64 }, // Hashed IP - 64 chars (SHA-256 hex)
-  ip: { type: String, deprecated: true }, // Marked as deprecated, will be removed
+  ip: { type: String },
   at: { type: Date, default: Date.now },
 });
 

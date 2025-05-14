@@ -9,7 +9,7 @@ const errorEventSchema = new Schema({
   stack: { type: String },
   method: { type: String },
   userAgent: { type: String },
-  ipHash: { type: String, length: 64 } // Store hashed IP for privacy
+  ip: { type: String }, // Client IP address
 });
 
 // Add TTL index (7 days = 604800 seconds)
