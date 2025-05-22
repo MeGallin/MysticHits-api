@@ -72,7 +72,9 @@ app.use(globalLimiter); // Apply global rate limiter to all routes
 app.use('/api/auth', authLimiter, authRoutes); // More strict limit on auth routes
 app.use('/api/contact', contactLimiter, contactRoutes); // Strict limit on contact form
 
+// Mount routes
 app.use('/api/hits', hitsRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/playlist', playlistRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/health', healthRoutes);
