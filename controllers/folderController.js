@@ -260,3 +260,78 @@ exports.playFolder = async (req, res) => {
       .json({ success: false, error: 'Failed to fetch playlist from folder' });
   }
 };
+
+/**
+ * Reorder folders for a user
+ *
+ * @route PUT /api/user/folders/reorder
+ * @access Private
+ */
+exports.reorderFolders = async (req, res) => {
+  try {
+    const { folderIds } = req.body;
+
+    if (!folderIds || !Array.isArray(folderIds) || folderIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'folderIds array is required',
+      });
+    }
+
+    // Get the user with their folders
+    const user = await User.findById(req.userId, 'folders');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+      });
+    }
+
+    // Validate that all folderIds belong to this user
+    const userFolderIds = user.folders.map((folder) => folder._id.toString());
+    const allIdsExist = folderIds.every((id) => userFolderIds.includes(id));
+
+    if (!allIdsExist) {
+      return res.status(400).json({
+        success: false,
+        error: 'One or more folder IDs are invalid',
+      });
+    }
+
+    // Create a new array of folders in the specified order
+    const orderedFolders = [];
+
+    // First add folders in the requested order
+    for (const id of folderIds) {
+      const folder = user.folders.find((f) => f._id.toString() === id);
+      if (folder) {
+        orderedFolders.push(folder);
+      }
+    }
+
+    // Add any folders that weren't in the reordering array at the end
+    for (const folder of user.folders) {
+      if (!folderIds.includes(folder._id.toString())) {
+        orderedFolders.push(folder);
+      }
+    }
+
+    // Save the reordered folders
+    user.folders = orderedFolders;
+    await user.save();
+
+    // Return the reordered list
+    res.json({
+      success: true,
+      data: user.folders,
+      message: 'Folders reordered successfully',
+    });
+  } catch (error) {
+    console.error('Error reordering folders:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to reorder folders',
+    });
+  }
+};
