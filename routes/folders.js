@@ -13,6 +13,7 @@ router.post('/', folderController.addFolder);
 router.patch('/:id', folderController.updateFolder);
 router.delete('/:id', folderController.deleteFolder);
 router.get('/:id/playlist', folderController.playFolder);
+router.put('/reorder', folderController.reorderFolders);
 
 // Admin routes - view any user's folders
 router.get('/user/:uid', adminMiddleware, folderController.listFolders);
