@@ -563,3 +563,60 @@ exports.getPageViewsStats = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * @desc Get user activity summary (new users, logins per day)
+ * @route GET /api/admin/stats/user-activity-summary
+ * @access Private/Admin
+ */
+exports.getUserActivitySummary = async (req, res, next) => {
+  try {
+    const daysToQuery = parseInt(req.query.days) || 7; // Default to 7 days
+    const cacheKey = `admin:stats:user-activity-summary:${daysToQuery}`;
+
+    const cachedData = cache.get(cacheKey);
+    if (cachedData) {
+      return res.json(cachedData);
+    }
+
+    const summaries = [];
+    for (let i = 0; i < daysToQuery; i++) {
+      const targetDate = daysAgo(i);
+      const nextDate = daysAgo(i - 1); // End of the target day
+
+      const newUsersCount = await User.countDocuments({
+        createdAt: {
+          $gte: targetDate,
+          $lt: nextDate,
+        },
+      });
+
+      const loginsCount = await LoginEvent.countDocuments({
+        at: {
+          $gte: targetDate,
+          $lt: nextDate,
+        },
+      });
+
+      let dateLabel = targetDate.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+      });
+      if (i === 0) dateLabel = 'Today';
+      else if (i === 1) dateLabel = 'Yesterday';
+
+      summaries.push({
+        dateLabel,
+        date: targetDate.toISOString().split('T')[0],
+        newUsers: newUsersCount,
+        logins: loginsCount,
+      });
+    }
+
+    cache.set(cacheKey, summaries, 60 * 15); // Cache for 15 minutes
+    res.json(summaries);
+  } catch (error) {
+    console.error('Error fetching user activity summary:', error);
+    next(error); // Pass to global error handler
+  }
+};
