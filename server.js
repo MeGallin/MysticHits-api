@@ -11,6 +11,7 @@ const {
 } = require('./middleware/rateLimiter');
 const errorHandler = require('./middleware/errorHandler');
 const { trackMetrics } = require('./middleware/requestMetrics');
+const { hitTrackerMiddleware } = require('./middleware/hitTracker');
 const hitsRoutes = require('./routes/hits');
 const authRoutes = require('./routes/auth');
 const contactRoutes = require('./routes/contact');
@@ -60,6 +61,9 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 app.use(trackMetrics); // Track request metrics for all routes
+
+// Add hit tracking middleware after other middleware but before routes
+app.use(hitTrackerMiddleware);
 
 connectDB().catch((err) => {
   // Log only critical DB connection errors

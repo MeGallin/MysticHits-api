@@ -18,7 +18,10 @@ const {
   getDailyPageViews, // Make sure this is imported
   getTopPages, // Make sure to import the controller function
 } = require('../controllers/adminController');
-const { seedHitData } = require('../controllers/seedController');
+const {
+  clearHitData,
+  getHitAnalytics,
+} = require('../controllers/seedController');
 const ErrorEvent = require('../models/ErrorEvent');
 
 // Apply admin middleware to all routes
@@ -107,7 +110,10 @@ router.get('/stats/pageviews/daily', adminMiddleware, getDailyPageViews);
 // GET top pages statistics
 router.get('/stats/top-pages', adminMiddleware, getTopPages);
 
-// Make sure this route is registered in your admin.js file
-router.post('/seed/hit-data', adminMiddleware, seedHitData);
+// Replace seed endpoint with clear endpoint
+router.delete('/clear/hit-data', clearHitData);
+
+// Add real analytics endpoint
+router.get('/analytics/hits', getHitAnalytics);
 
 module.exports = router;
