@@ -620,3 +620,226 @@ exports.getUserActivitySummary = async (req, res, next) => {
     next(error); // Pass to global error handler
   }
 };
+
+/**
+ * @desc Get daily page view metrics for charting
+ * @route GET /api/admin/stats/pageviews/daily
+ * @access Private/Admin
+ */
+exports.getDailyPageViews = async (req, res, next) => {
+  try {
+    const { days = 30 } = req.query;
+    const daysNum = parseInt(days, 10);
+
+    if (isNaN(daysNum) || daysNum <= 0 || daysNum > 90) {
+      return res
+        .status(400)
+        .json({ error: 'Days parameter must be between 1 and 90' });
+    }
+
+    const cacheKey = `admin:stats:daily_pageviews:${daysNum}`;
+    const cachedData = cache.get(cacheKey);
+
+    if (cachedData) {
+      return res.json(cachedData);
+    }
+
+    // Calculate start date for the query
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysNum);
+
+    // Get all hits grouped by date
+    const dailyHits = await Hit.aggregate([
+      {
+        $match: {
+          lastHitAt: { $gte: startDate },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: { format: '%Y-%m-%d', date: '$lastHitAt' },
+          },
+          views: { $sum: '$hitCount' },
+          visitors: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]);
+
+    // Create a map to ensure we have entries for all days
+    const dateMap = new Map();
+
+    // Initialize all dates in range with zero values
+    for (let i = 0; i < daysNum; i++) {
+      const date = new Date();
+      date.setDate(date.getDate() - (daysNum - 1 - i));
+      const dateStr = date.toISOString().split('T')[0];
+      dateMap.set(dateStr, { views: 0, visitors: 0 });
+    }
+
+    // Fill with actual data where available
+    dailyHits.forEach((hit) => {
+      const dateStr = hit._id;
+      dateMap.set(dateStr, {
+        views: hit.views,
+        visitors: hit.visitors,
+      });
+    });
+
+    // Convert to array format expected by the frontend
+    const dailyData = Array.from(dateMap, ([date, data]) => ({
+      date,
+      views: data.views,
+      visitors: data.visitors,
+    })).sort((a, b) => a.date.localeCompare(b.date));
+
+    const result = {
+      dailyData,
+      period: `${daysNum} days`,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Cache the results for 30 minutes
+    cache.set(cacheKey, result, 1800);
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error getting daily page views:', error);
+    next(error);
+  }
+};
+
+/**
+ * @desc Get top pages by hit count
+ * @route GET /api/admin/stats/top-pages
+ * @access Private/Admin
+ */
+exports.getTopPages = async (req, res, next) => {
+  try {
+    const { limit = 5, days = 30 } = req.query;
+    const limitNum = parseInt(limit, 10);
+    const daysNum = parseInt(days, 10);
+
+    // Create a cache key based on parameters
+    const cacheKey = `admin:stats:top-pages:${limitNum}:${daysNum}`;
+    const cachedData = cache.get(cacheKey);
+
+    if (cachedData) {
+      return res.json(cachedData);
+    }
+
+    // Calculate the start date based on days parameter
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - daysNum);
+
+    // Aggregate hits by page URL
+    const topPages = await Hit.aggregate([
+      {
+        $match: {
+          lastHitAt: { $gte: startDate },
+          page: { $ne: null }, // Filter out null page values
+        },
+      },
+      {
+        $group: {
+          _id: '$page',
+          views: { $sum: '$hitCount' },
+          visitors: { $sum: 1 },
+        },
+      },
+      { $sort: { views: -1 } },
+      { $limit: limitNum },
+      {
+        $project: {
+          _id: 0,
+          page: '$_id',
+          views: 1,
+          visitors: 1,
+        },
+      },
+    ]);
+
+    // If no results found, provide sample data instead of empty array
+    if (topPages.length === 0) {
+      const samplePages = [
+        { page: '/', views: 587, visitors: 325, pageName: 'Home' },
+        { page: '/playlist', views: 231, visitors: 189, pageName: 'Playlist' },
+        { page: '/charts', views: 145, visitors: 122, pageName: 'Charts' },
+      ];
+
+      const result = {
+        pages: samplePages,
+        period: `${daysNum} days`,
+        total: samplePages.reduce((sum, page) => sum + page.views, 0),
+        updatedAt: new Date().toISOString(),
+        isSampleData: true, // Flag to indicate this is sample data
+      };
+
+      cache.set(cacheKey, result, 1800);
+      return res.json(result);
+    }
+
+    // Transform page URLs to make them more readable
+    const transformedPages = topPages.map((page) => {
+      // Extract page name from URL
+      // Handle null or undefined page values safely
+      let pageName = page.page || 'Unknown';
+
+      // Clean up page path for display
+      if (pageName === '/' || pageName === '' || pageName === 'Unknown') {
+        pageName = 'Home';
+      } else {
+        try {
+          // Remove leading slash, query params, and capitalize
+          pageName = pageName.replace(/^\//, '').split('?')[0].split('#')[0];
+
+          // Replace dashes with spaces and capitalize each word
+          if (pageName) {
+            pageName = pageName
+              .replace(/-/g, ' ')
+              .split('/')
+              .pop() // Get the last part of the path
+              .split(' ')
+              .map(
+                (word) => word && word.charAt(0).toUpperCase() + word.slice(1),
+              )
+              .join(' ');
+          }
+
+          if (!pageName) pageName = 'Home';
+        } catch (error) {
+          console.error('Error formatting page name:', error);
+          pageName = 'Unknown Page';
+        }
+      }
+
+      return {
+        ...page,
+        pageName,
+      };
+    });
+
+    const result = {
+      pages: transformedPages,
+      period: `${daysNum} days`,
+      total: transformedPages.reduce((sum, page) => sum + page.views, 0),
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Cache the result for 30 minutes
+    cache.set(cacheKey, result, 1800);
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error getting top pages:', error);
+    // Return empty pages array instead of crashing
+    res.json({
+      pages: [],
+      period: `${req.query.days || 30} days`,
+      total: 0,
+      updatedAt: new Date().toISOString(),
+      error: error.message,
+    });
+  }
+};

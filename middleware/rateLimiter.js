@@ -10,7 +10,7 @@ console.log('Rate limit whitelist:', WHITELIST);
 function skipIfWhitelisted(req) {
   return ipRangeCheck(req.ip, WHITELIST);
 }
-console.log('Rate limit whitelist:', WHITELIST);
+
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -34,4 +34,15 @@ const contactLimiter = rateLimit({
   skip: skipIfWhitelisted, // 👈 NEW
 });
 
-module.exports = { globalLimiter, authLimiter, contactLimiter };
+// Add a more generous rate limiter specifically for admin endpoints
+const adminLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 500, // Allow up to 500 requests per 10 minutes
+  message: { error: 'Admin rate limit exceeded, please try again soon.' },
+  skip: skipIfWhitelisted,
+  // Fix: Use the standard format for standardHeaders
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
+
+module.exports = { globalLimiter, authLimiter, contactLimiter, adminLimiter };

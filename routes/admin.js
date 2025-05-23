@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { adminLimiter } = require('../middleware/rateLimiter');
 const adminMiddleware = require('../middleware/adminMiddleware');
 const {
   getUsers,
@@ -12,13 +13,17 @@ const {
   deleteMessage,
   getDailyActiveUsers,
   getTopTracks,
-  getPageViewsStats, // Add this line
-  getUserActivitySummary, // Add this line
+  getPageViewsStats,
+  getUserActivitySummary,
+  getDailyPageViews, // Make sure this is imported
+  getTopPages, // Make sure to import the controller function
 } = require('../controllers/adminController');
+const { seedHitData } = require('../controllers/seedController');
 const ErrorEvent = require('../models/ErrorEvent');
 
 // Apply admin middleware to all routes
 router.use(adminMiddleware);
+router.use(adminLimiter);
 
 // GET all users - protected for admins only
 router.get('/users', getUsers);
@@ -92,5 +97,17 @@ router.get(
   adminMiddleware,
   getUserActivitySummary,
 );
+
+// Add this new route - alternative URL that doesn't trigger ad blockers
+router.get('/metrics/daily-activity', adminMiddleware, getDailyPageViews);
+
+// Also keep the original route in case you want to use it directly
+router.get('/stats/pageviews/daily', adminMiddleware, getDailyPageViews);
+
+// GET top pages statistics
+router.get('/stats/top-pages', adminMiddleware, getTopPages);
+
+// Make sure this route is registered in your admin.js file
+router.post('/seed/hit-data', adminMiddleware, seedHitData);
 
 module.exports = router;
