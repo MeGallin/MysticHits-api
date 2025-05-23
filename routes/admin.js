@@ -13,6 +13,7 @@ const {
   getDailyActiveUsers,
   getTopTracks,
   getPageViewsStats, // Add this line
+  getUserActivitySummary, // Add this line
 } = require('../controllers/adminController');
 const ErrorEvent = require('../models/ErrorEvent');
 
@@ -84,5 +85,12 @@ router.get('/errors', async (req, res) => {
 });
 
 router.get('/stats/pageviews', adminMiddleware, getPageViewsStats);
+
+// GET user activity summary (new users, logins per day)
+router.get(
+  '/stats/user-activity-summary',
+  adminMiddleware,
+  getUserActivitySummary,
+);
 
 module.exports = router;
