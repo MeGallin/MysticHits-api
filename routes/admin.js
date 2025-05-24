@@ -17,6 +17,13 @@ const {
   getUserActivitySummary,
   getDailyPageViews, // Make sure this is imported
   getTopPages, // Make sure to import the controller function
+  // New listening analytics endpoints
+  getListeningAnalyticsOverview,
+  getUserListeningBehavior,
+  getListeningPatterns,
+  getGeographicListeningAnalytics,
+  getPlaylistAnalytics,
+  getUserEngagementAnalytics,
 } = require('../controllers/adminController');
 const {
   clearHitData,
@@ -115,5 +122,24 @@ router.delete('/clear/hit-data', clearHitData);
 
 // Add real analytics endpoint
 router.get('/analytics/hits', getHitAnalytics);
+
+// NEW LISTENING ANALYTICS ENDPOINTS
+// GET comprehensive listening analytics overview
+router.get('/listening-analytics/overview', getListeningAnalyticsOverview);
+
+// GET detailed user listening behavior analytics
+router.get('/listening-analytics/user-behavior', getUserListeningBehavior);
+
+// GET listening patterns analysis (time of day, frequency)
+router.get('/listening-analytics/patterns', getListeningPatterns);
+
+// GET geographic listening analytics
+router.get('/listening-analytics/geographic', getGeographicListeningAnalytics);
+
+// GET playlist usage analytics
+router.get('/listening-analytics/playlists', getPlaylistAnalytics);
+
+// GET user engagement and retention analytics
+router.get('/listening-analytics/engagement', getUserEngagementAnalytics);
 
 module.exports = router;
