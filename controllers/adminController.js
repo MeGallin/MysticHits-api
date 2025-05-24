@@ -420,7 +420,7 @@ exports.getTopTracks = async (req, res) => {
           _id: 0,
           trackUrl: '$_id',
           title: 1,
-          plays: '$count', // Rename count to plays as per BE-6 spec
+          count: '$count', // Keep as count to match frontend interface
         },
       },
     ]);
@@ -841,5 +841,876 @@ exports.getTopPages = async (req, res, next) => {
       updatedAt: new Date().toISOString(),
       error: error.message,
     });
+  }
+};
+
+/**
+ * Get comprehensive listening analytics for admin dashboard
+ * @route GET /api/admin/listening-analytics/overview
+ * @access Private/Admin
+ */
+exports.getListeningAnalyticsOverview = async (req, res) => {
+  try {
+    const { days = 7 } = req.query;
+    const daysNum = parseInt(days, 10);
+
+    if (isNaN(daysNum) || daysNum <= 0 || daysNum > 90) {
+      return res
+        .status(400)
+        .json({ error: 'Days parameter must be between 1 and 90' });
+    }
+
+    const cacheKey = `admin:listening-analytics:overview:${daysNum}`;
+    const cachedData = cache.get(cacheKey);
+
+    if (cachedData) {
+      return res.json(cachedData);
+    }
+
+    const startDate = getDaysAgo(daysNum);
+
+    // Aggregate comprehensive listening statistics
+    const [totalStats, completionStats, sourceStats, deviceStats, skipStats] =
+      await Promise.all([
+        // Total listening statistics
+        PlayEvent.aggregate([
+          { $match: { startedAt: { $gte: startDate } } },
+          {
+            $group: {
+              _id: null,
+              totalPlays: { $sum: 1 },
+              totalListenTime: { $sum: '$listenDuration' },
+              totalTrackTime: { $sum: '$duration' },
+              uniqueUsers: { $addToSet: '$userId' },
+              uniqueTracks: { $addToSet: '$trackUrl' },
+              averageSessionLength: { $avg: '$sessionPosition' },
+            },
+          },
+        ]),
+
+        // Track completion statistics
+        PlayEvent.aggregate([
+          { $match: { startedAt: { $gte: startDate } } },
+          {
+            $group: {
+              _id: null,
+              completed: { $sum: { $cond: ['$completed', 1, 0] } },
+              skipped: { $sum: { $cond: ['$skipped', 1, 0] } },
+              total: { $sum: 1 },
+            },
+          },
+        ]),
+
+        // Source statistics
+        PlayEvent.aggregate([
+          { $match: { startedAt: { $gte: startDate } } },
+          {
+            $group: {
+              _id: '$source',
+              count: { $sum: 1 },
+              averageListenDuration: { $avg: '$listenDuration' },
+            },
+          },
+          { $sort: { count: -1 } },
+        ]),
+
+        // Device type statistics
+        PlayEvent.aggregate([
+          { $match: { startedAt: { $gte: startDate } } },
+          {
+            $group: {
+              _id: '$deviceType',
+              count: { $sum: 1 },
+              averageListenDuration: { $avg: '$listenDuration' },
+            },
+          },
+          { $sort: { count: -1 } },
+        ]),
+
+        // Skip analysis
+        PlayEvent.aggregate([
+          {
+            $match: {
+              startedAt: { $gte: startDate },
+              skipped: true,
+              skipTime: { $exists: true },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              averageSkipTime: { $avg: '$skipTime' },
+              totalSkips: { $sum: 1 },
+            },
+          },
+        ]),
+      ]);
+
+    const result = {
+      overview: {
+        totalPlays: totalStats[0]?.totalPlays || 0,
+        totalListenTime: Math.round(totalStats[0]?.totalListenTime || 0),
+        totalTrackTime: Math.round(totalStats[0]?.totalTrackTime || 0),
+        uniqueUsers: totalStats[0]?.uniqueUsers?.length || 0,
+        uniqueTracks: totalStats[0]?.uniqueTracks?.length || 0,
+        averageSessionLength: Math.round(
+          totalStats[0]?.averageSessionLength || 0,
+        ),
+        listenRatio:
+          totalStats[0]?.totalTrackTime > 0
+            ? Math.round(
+                (totalStats[0].totalListenTime / totalStats[0].totalTrackTime) *
+                  100,
+              ) / 100
+            : 0,
+      },
+      completion: {
+        completedTracks: completionStats[0]?.completed || 0,
+        skippedTracks: completionStats[0]?.skipped || 0,
+        totalTracks: completionStats[0]?.total || 0,
+        completionRate:
+          completionStats[0]?.total > 0
+            ? Math.round(
+                (completionStats[0].completed / completionStats[0].total) * 100,
+              ) / 100
+            : 0,
+        skipRate:
+          completionStats[0]?.total > 0
+            ? Math.round(
+                (completionStats[0].skipped / completionStats[0].total) * 100,
+              ) / 100
+            : 0,
+      },
+      sources: sourceStats.map((source) => ({
+        source: source._id || 'unknown',
+        count: source.count,
+        averageListenDuration: Math.round(source.averageListenDuration || 0),
+      })),
+      devices: deviceStats.map((device) => ({
+        deviceType: device._id || 'unknown',
+        count: device.count,
+        averageListenDuration: Math.round(device.averageListenDuration || 0),
+      })),
+      skipAnalysis: {
+        averageSkipTime: Math.round(skipStats[0]?.averageSkipTime || 0),
+        totalSkips: skipStats[0]?.totalSkips || 0,
+      },
+      period: `${daysNum} days`,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Cache for 30 minutes
+    cache.set(cacheKey, result, 1800);
+    return res.json(result);
+  } catch (error) {
+    console.error('Error fetching listening analytics overview:', error);
+    return res
+      .status(500)
+      .json({ error: 'Failed to fetch listening analytics overview' });
+  }
+};
+
+/**
+ * Get detailed user listening behavior analytics
+ * @route GET /api/admin/listening-analytics/user-behavior
+ * @access Private/Admin
+ */
+exports.getUserListeningBehavior = async (req, res) => {
+  try {
+    const { days = 7, limit = 20 } = req.query;
+    const daysNum = parseInt(days, 10);
+    const limitNum = Math.min(parseInt(limit, 10), 100);
+
+    const cacheKey = `admin:listening-analytics:user-behavior:${daysNum}:${limitNum}`;
+    const cachedData = cache.get(cacheKey);
+
+    if (cachedData) {
+      return res.json(cachedData);
+    }
+
+    const startDate = getDaysAgo(daysNum);
+
+    // Get detailed user behavior analytics
+    const userBehavior = await PlayEvent.aggregate([
+      { $match: { startedAt: { $gte: startDate } } },
+      {
+        $group: {
+          _id: '$userId',
+          totalPlays: { $sum: 1 },
+          totalListenTime: { $sum: '$listenDuration' },
+          uniqueTracks: { $addToSet: '$trackUrl' },
+          completedTracks: { $sum: { $cond: ['$completed', 1, 0] } },
+          skippedTracks: { $sum: { $cond: ['$skipped', 1, 0] } },
+          repeatedTracks: { $sum: { $cond: ['$repeated', 1, 0] } },
+          likedTracks: { $sum: { $cond: ['$liked', 1, 0] } },
+          sharedTracks: { $sum: { $cond: ['$shared', 1, 0] } },
+          averageSessionLength: { $avg: '$sessionPosition' },
+          deviceTypes: { $addToSet: '$deviceType' },
+          sources: { $addToSet: '$source' },
+          countries: { $addToSet: '$country' },
+          firstPlay: { $min: '$startedAt' },
+          lastPlay: { $max: '$startedAt' },
+        },
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'user',
+        },
+      },
+      {
+        $project: {
+          userId: '$_id',
+          username: { $arrayElemAt: ['$user.username', 0] },
+          email: { $arrayElemAt: ['$user.email', 0] },
+          totalPlays: 1,
+          totalListenTime: { $round: ['$totalListenTime', 0] },
+          uniqueTracks: { $size: '$uniqueTracks' },
+          completedTracks: 1,
+          skippedTracks: 1,
+          repeatedTracks: 1,
+          likedTracks: 1,
+          sharedTracks: 1,
+          averageSessionLength: { $round: ['$averageSessionLength', 1] },
+          deviceTypes: { $size: '$deviceTypes' },
+          sources: { $size: '$sources' },
+          countries: { $size: '$countries' },
+          completionRate: {
+            $cond: [
+              { $gt: ['$totalPlays', 0] },
+              {
+                $round: [
+                  {
+                    $multiply: [
+                      { $divide: ['$completedTracks', '$totalPlays'] },
+                      100,
+                    ],
+                  },
+                  1,
+                ],
+              },
+              0,
+            ],
+          },
+          skipRate: {
+            $cond: [
+              { $gt: ['$totalPlays', 0] },
+              {
+                $round: [
+                  {
+                    $multiply: [
+                      { $divide: ['$skippedTracks', '$totalPlays'] },
+                      100,
+                    ],
+                  },
+                  1,
+                ],
+              },
+              0,
+            ],
+          },
+          averageListenTimePerTrack: {
+            $cond: [
+              { $gt: ['$totalPlays', 0] },
+              { $round: [{ $divide: ['$totalListenTime', '$totalPlays'] }, 0] },
+              0,
+            ],
+          },
+          firstPlay: 1,
+          lastPlay: 1,
+        },
+      },
+      { $sort: { totalPlays: -1 } },
+      { $limit: limitNum },
+    ]);
+
+    const result = {
+      users: userBehavior,
+      period: `${daysNum} days`,
+      totalUsers: userBehavior.length,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Cache for 15 minutes
+    cache.set(cacheKey, result, 900);
+    return res.json(result);
+  } catch (error) {
+    console.error('Error fetching user listening behavior:', error);
+    return res
+      .status(500)
+      .json({ error: 'Failed to fetch user listening behavior' });
+  }
+};
+
+/**
+ * Get listening patterns analysis (time of day, frequency)
+ * @route GET /api/admin/listening-analytics/patterns
+ * @access Private/Admin
+ */
+exports.getListeningPatterns = async (req, res) => {
+  try {
+    const { days = 7 } = req.query;
+    const daysNum = parseInt(days, 10);
+
+    const cacheKey = `admin:listening-analytics:patterns:${daysNum}`;
+    const cachedData = cache.get(cacheKey);
+
+    if (cachedData) {
+      return res.json(cachedData);
+    }
+
+    const startDate = getDaysAgo(daysNum);
+
+    const [hourlyPattern, dailyPattern, genrePattern] = await Promise.all([
+      // Hourly listening patterns
+      PlayEvent.aggregate([
+        { $match: { startedAt: { $gte: startDate } } },
+        {
+          $group: {
+            _id: { $hour: '$startedAt' },
+            plays: { $sum: 1 },
+            totalListenTime: { $sum: '$listenDuration' },
+            uniqueUsers: { $addToSet: '$userId' },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]),
+
+      // Daily listening patterns
+      PlayEvent.aggregate([
+        { $match: { startedAt: { $gte: startDate } } },
+        {
+          $group: {
+            _id: { $dayOfWeek: '$startedAt' },
+            plays: { $sum: 1 },
+            totalListenTime: { $sum: '$listenDuration' },
+            uniqueUsers: { $addToSet: '$userId' },
+          },
+        },
+        { $sort: { _id: 1 } },
+      ]),
+
+      // Genre listening patterns
+      PlayEvent.aggregate([
+        {
+          $match: {
+            startedAt: { $gte: startDate },
+            genre: { $exists: true, $ne: null },
+          },
+        },
+        {
+          $group: {
+            _id: '$genre',
+            plays: { $sum: 1 },
+            totalListenTime: { $sum: '$listenDuration' },
+            uniqueUsers: { $addToSet: '$userId' },
+            averageCompletionRate: {
+              $avg: { $cond: ['$completed', 1, 0] },
+            },
+          },
+        },
+        { $sort: { plays: -1 } },
+        { $limit: 10 },
+      ]),
+    ]);
+
+    // Convert day numbers to day names
+    const dayNames = [
+      '',
+      'Sunday',
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+    ];
+
+    const result = {
+      hourlyPattern: Array.from({ length: 24 }, (_, hour) => {
+        const data = hourlyPattern.find((p) => p._id === hour);
+        return {
+          hour,
+          plays: data?.plays || 0,
+          totalListenTime: Math.round(data?.totalListenTime || 0),
+          uniqueUsers: data?.uniqueUsers?.length || 0,
+        };
+      }),
+      dailyPattern: Array.from({ length: 7 }, (_, dayIndex) => {
+        const dayNum = dayIndex === 0 ? 7 : dayIndex; // MongoDB dayOfWeek: 1=Sunday, 7=Saturday
+        const data = dailyPattern.find(
+          (p) => p._id === (dayIndex === 6 ? 7 : dayIndex + 1),
+        );
+        return {
+          day: dayNames[dayIndex === 6 ? 7 : dayIndex + 1],
+          dayNumber: dayIndex,
+          plays: data?.plays || 0,
+          totalListenTime: Math.round(data?.totalListenTime || 0),
+          uniqueUsers: data?.uniqueUsers?.length || 0,
+        };
+      }),
+      genrePattern: genrePattern.map((genre) => ({
+        genre: genre._id,
+        plays: genre.plays,
+        totalListenTime: Math.round(genre.totalListenTime),
+        uniqueUsers: genre.uniqueUsers.length,
+        averageCompletionRate:
+          Math.round(genre.averageCompletionRate * 100) / 100,
+      })),
+      period: `${daysNum} days`,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Cache for 30 minutes
+    cache.set(cacheKey, result, 1800);
+    return res.json(result);
+  } catch (error) {
+    console.error('Error fetching listening patterns:', error);
+    return res
+      .status(500)
+      .json({ error: 'Failed to fetch listening patterns' });
+  }
+};
+
+/**
+ * Get geographic listening analytics
+ * @route GET /api/admin/listening-analytics/geographic
+ * @access Private/Admin
+ */
+exports.getGeographicListeningAnalytics = async (req, res) => {
+  try {
+    const { days = 7 } = req.query;
+    const daysNum = parseInt(days, 10);
+
+    const cacheKey = `admin:listening-analytics:geographic:${daysNum}`;
+    const cachedData = cache.get(cacheKey);
+
+    if (cachedData) {
+      return res.json(cachedData);
+    }
+
+    const startDate = getDaysAgo(daysNum);
+
+    const [countryStats, regionStats, cityStats] = await Promise.all([
+      // Country-level analytics
+      PlayEvent.aggregate([
+        {
+          $match: {
+            startedAt: { $gte: startDate },
+            country: { $exists: true, $ne: null },
+          },
+        },
+        {
+          $group: {
+            _id: '$country',
+            plays: { $sum: 1 },
+            totalListenTime: { $sum: '$listenDuration' },
+            uniqueUsers: { $addToSet: '$userId' },
+            averageSessionLength: { $avg: '$sessionPosition' },
+          },
+        },
+        { $sort: { plays: -1 } },
+        { $limit: 20 },
+      ]),
+
+      // Region-level analytics
+      PlayEvent.aggregate([
+        {
+          $match: {
+            startedAt: { $gte: startDate },
+            region: { $exists: true, $ne: null },
+          },
+        },
+        {
+          $group: {
+            _id: { country: '$country', region: '$region' },
+            plays: { $sum: 1 },
+            totalListenTime: { $sum: '$listenDuration' },
+            uniqueUsers: { $addToSet: '$userId' },
+          },
+        },
+        { $sort: { plays: -1 } },
+        { $limit: 15 },
+      ]),
+
+      // City-level analytics
+      PlayEvent.aggregate([
+        {
+          $match: {
+            startedAt: { $gte: startDate },
+            city: { $exists: true, $ne: null },
+          },
+        },
+        {
+          $group: {
+            _id: { country: '$country', region: '$region', city: '$city' },
+            plays: { $sum: 1 },
+            totalListenTime: { $sum: '$listenDuration' },
+            uniqueUsers: { $addToSet: '$userId' },
+          },
+        },
+        { $sort: { plays: -1 } },
+        { $limit: 10 },
+      ]),
+    ]);
+
+    const result = {
+      countries: countryStats.map((country) => ({
+        country: country._id,
+        plays: country.plays,
+        totalListenTime: Math.round(country.totalListenTime),
+        uniqueUsers: country.uniqueUsers.length,
+        averageSessionLength:
+          Math.round(country.averageSessionLength * 10) / 10,
+      })),
+      regions: regionStats.map((region) => ({
+        country: region._id.country,
+        region: region._id.region,
+        plays: region.plays,
+        totalListenTime: Math.round(region.totalListenTime),
+        uniqueUsers: region.uniqueUsers.length,
+      })),
+      cities: cityStats.map((city) => ({
+        country: city._id.country,
+        region: city._id.region,
+        city: city._id.city,
+        plays: city.plays,
+        totalListenTime: Math.round(city.totalListenTime),
+        uniqueUsers: city.uniqueUsers.length,
+      })),
+      period: `${daysNum} days`,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Cache for 30 minutes
+    cache.set(cacheKey, result, 1800);
+    return res.json(result);
+  } catch (error) {
+    console.error('Error fetching geographic listening analytics:', error);
+    return res
+      .status(500)
+      .json({ error: 'Failed to fetch geographic listening analytics' });
+  }
+};
+
+/**
+ * Get playlist usage analytics
+ * @route GET /api/admin/listening-analytics/playlists
+ * @access Private/Admin
+ */
+exports.getPlaylistAnalytics = async (req, res) => {
+  try {
+    const { days = 7, limit = 20 } = req.query;
+    const daysNum = parseInt(days, 10);
+    const limitNum = Math.min(parseInt(limit, 10), 50);
+
+    const cacheKey = `admin:listening-analytics:playlists:${daysNum}:${limitNum}`;
+    const cachedData = cache.get(cacheKey);
+
+    if (cachedData) {
+      return res.json(cachedData);
+    }
+
+    const startDate = getDaysAgo(daysNum);
+
+    const [playlistStats, sourceBreakdown] = await Promise.all([
+      // Playlist-specific analytics
+      PlayEvent.aggregate([
+        {
+          $match: {
+            startedAt: { $gte: startDate },
+            source: 'playlist',
+            playlistId: { $exists: true, $ne: null },
+          },
+        },
+        {
+          $group: {
+            _id: '$playlistId',
+            plays: { $sum: 1 },
+            totalListenTime: { $sum: '$listenDuration' },
+            uniqueUsers: { $addToSet: '$userId' },
+            uniqueTracks: { $addToSet: '$trackUrl' },
+            averageSessionPosition: { $avg: '$sessionPosition' },
+            completedTracks: { $sum: { $cond: ['$completed', 1, 0] } },
+            skippedTracks: { $sum: { $cond: ['$skipped', 1, 0] } },
+          },
+        },
+        {
+          $project: {
+            playlistId: '$_id',
+            plays: 1,
+            totalListenTime: { $round: ['$totalListenTime', 0] },
+            uniqueUsers: { $size: '$uniqueUsers' },
+            uniqueTracks: { $size: '$uniqueTracks' },
+            averageSessionPosition: { $round: ['$averageSessionPosition', 1] },
+            completedTracks: 1,
+            skippedTracks: 1,
+            completionRate: {
+              $cond: [
+                { $gt: ['$plays', 0] },
+                {
+                  $round: [
+                    {
+                      $multiply: [
+                        { $divide: ['$completedTracks', '$plays'] },
+                        100,
+                      ],
+                    },
+                    1,
+                  ],
+                },
+                0,
+              ],
+            },
+          },
+        },
+        { $sort: { plays: -1 } },
+        { $limit: limitNum },
+      ]),
+
+      // Source breakdown for context
+      PlayEvent.aggregate([
+        { $match: { startedAt: { $gte: startDate } } },
+        {
+          $group: {
+            _id: '$source',
+            plays: { $sum: 1 },
+            totalListenTime: { $sum: '$listenDuration' },
+            uniqueUsers: { $addToSet: '$userId' },
+          },
+        },
+        { $sort: { plays: -1 } },
+      ]),
+    ]);
+
+    const result = {
+      playlists: playlistStats,
+      sourceBreakdown: sourceBreakdown.map((source) => ({
+        source: source._id || 'unknown',
+        plays: source.plays,
+        totalListenTime: Math.round(source.totalListenTime),
+        uniqueUsers: source.uniqueUsers.length,
+      })),
+      period: `${daysNum} days`,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Cache for 20 minutes
+    cache.set(cacheKey, result, 1200);
+    return res.json(result);
+  } catch (error) {
+    console.error('Error fetching playlist analytics:', error);
+    return res
+      .status(500)
+      .json({ error: 'Failed to fetch playlist analytics' });
+  }
+};
+
+/**
+ * Get user engagement and retention analytics
+ * @route GET /api/admin/listening-analytics/engagement
+ * @access Private/Admin
+ */
+exports.getUserEngagementAnalytics = async (req, res) => {
+  try {
+    const { days = 30 } = req.query;
+    const daysNum = parseInt(days, 10);
+
+    const cacheKey = `admin:listening-analytics:engagement:${daysNum}`;
+    const cachedData = cache.get(cacheKey);
+
+    if (cachedData) {
+      return res.json(cachedData);
+    }
+
+    const startDate = getDaysAgo(daysNum);
+
+    const [engagementMetrics, retentionAnalysis, qualityMetrics] =
+      await Promise.all([
+        // User engagement metrics
+        PlayEvent.aggregate([
+          { $match: { startedAt: { $gte: startDate } } },
+          {
+            $group: {
+              _id: '$userId',
+              totalPlays: { $sum: 1 },
+              totalListenTime: { $sum: '$listenDuration' },
+              likedTracks: { $sum: { $cond: ['$liked', 1, 0] } },
+              sharedTracks: { $sum: { $cond: ['$shared', 1, 0] } },
+              repeatedTracks: { $sum: { $cond: ['$repeated', 1, 0] } },
+              activeDays: {
+                $addToSet: {
+                  $dateToString: { format: '%Y-%m-%d', date: '$startedAt' },
+                },
+              },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              totalUsers: { $sum: 1 },
+              averagePlaysPerUser: { $avg: '$totalPlays' },
+              averageListenTimePerUser: { $avg: '$totalListenTime' },
+              totalLikes: { $sum: '$likedTracks' },
+              totalShares: { $sum: '$sharedTracks' },
+              totalRepeats: { $sum: '$repeatedTracks' },
+              averageActiveDays: { $avg: { $size: '$activeDays' } },
+              highEngagementUsers: {
+                $sum: {
+                  $cond: [{ $gte: ['$totalPlays', 50] }, 1, 0],
+                },
+              },
+            },
+          },
+        ]),
+
+        // User retention analysis (users active in different time periods)
+        PlayEvent.aggregate([
+          { $match: { startedAt: { $gte: getDaysAgo(30) } } },
+          {
+            $group: {
+              _id: '$userId',
+              firstPlay: { $min: '$startedAt' },
+              lastPlay: { $max: '$startedAt' },
+              totalPlays: { $sum: 1 },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              newUsersLast7Days: {
+                $sum: {
+                  $cond: [{ $gte: ['$firstPlay', getDaysAgo(7)] }, 1, 0],
+                },
+              },
+              activeUsersLast7Days: {
+                $sum: {
+                  $cond: [{ $gte: ['$lastPlay', getDaysAgo(7)] }, 1, 0],
+                },
+              },
+              returningUsers: {
+                $sum: {
+                  $cond: [{ $gt: ['$totalPlays', 1] }, 1, 0],
+                },
+              },
+              totalUsers: { $sum: 1 },
+            },
+          },
+        ]),
+
+        // Quality and technical metrics
+        PlayEvent.aggregate([
+          { $match: { startedAt: { $gte: startDate } } },
+          {
+            $group: {
+              _id: null,
+              totalPlays: { $sum: 1 },
+              totalBufferEvents: { $sum: '$bufferCount' },
+              totalQualityDrops: { $sum: '$qualityDrops' },
+              networkTypes: { $addToSet: '$networkType' },
+              averageBufferCount: { $avg: '$bufferCount' },
+              averageQualityDrops: { $avg: '$qualityDrops' },
+            },
+          },
+        ]),
+      ]);
+
+    const engagement = engagementMetrics[0] || {};
+    const retention = retentionAnalysis[0] || {};
+    const quality = qualityMetrics[0] || {};
+
+    const result = {
+      engagement: {
+        totalUsers: engagement.totalUsers || 0,
+        averagePlaysPerUser: Math.round(engagement.averagePlaysPerUser || 0),
+        averageListenTimePerUser: Math.round(
+          engagement.averageListenTimePerUser || 0,
+        ),
+        totalInteractions:
+          (engagement.totalLikes || 0) +
+          (engagement.totalShares || 0) +
+          (engagement.totalRepeats || 0),
+        likeRate:
+          engagement.totalUsers > 0
+            ? Math.round(
+                (engagement.totalLikes / engagement.totalUsers) * 100,
+              ) / 100
+            : 0,
+        shareRate:
+          engagement.totalUsers > 0
+            ? Math.round(
+                (engagement.totalShares / engagement.totalUsers) * 100,
+              ) / 100
+            : 0,
+        repeatRate:
+          engagement.totalUsers > 0
+            ? Math.round(
+                (engagement.totalRepeats / engagement.totalUsers) * 100,
+              ) / 100
+            : 0,
+        averageActiveDays:
+          Math.round(engagement.averageActiveDays * 10) / 10 || 0,
+        highEngagementUsers: engagement.highEngagementUsers || 0,
+        highEngagementRate:
+          engagement.totalUsers > 0
+            ? Math.round(
+                (engagement.highEngagementUsers / engagement.totalUsers) * 100,
+              ) / 100
+            : 0,
+      },
+      retention: {
+        totalUsers: retention.totalUsers || 0,
+        newUsersLast7Days: retention.newUsersLast7Days || 0,
+        activeUsersLast7Days: retention.activeUsersLast7Days || 0,
+        returningUsers: retention.returningUsers || 0,
+        retentionRate:
+          retention.totalUsers > 0
+            ? Math.round(
+                (retention.returningUsers / retention.totalUsers) * 100,
+              ) / 100
+            : 0,
+        newUserRetentionRate:
+          retention.newUsersLast7Days > 0
+            ? Math.round(
+                (retention.activeUsersLast7Days / retention.newUsersLast7Days) *
+                  100,
+              ) / 100
+            : 0,
+      },
+      quality: {
+        totalPlays: quality.totalPlays || 0,
+        totalBufferEvents: quality.totalBufferEvents || 0,
+        totalQualityDrops: quality.totalQualityDrops || 0,
+        averageBufferCount:
+          Math.round(quality.averageBufferCount * 100) / 100 || 0,
+        averageQualityDrops:
+          Math.round(quality.averageQualityDrops * 100) / 100 || 0,
+        bufferRate:
+          quality.totalPlays > 0
+            ? Math.round(
+                (quality.totalBufferEvents / quality.totalPlays) * 100,
+              ) / 100
+            : 0,
+        qualityIssueRate:
+          quality.totalPlays > 0
+            ? Math.round(
+                (quality.totalQualityDrops / quality.totalPlays) * 100,
+              ) / 100
+            : 0,
+      },
+      period: `${daysNum} days`,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Cache for 45 minutes
+    cache.set(cacheKey, result, 2700);
+    return res.json(result);
+  } catch (error) {
+    console.error('Error fetching user engagement analytics:', error);
+    return res
+      .status(500)
+      .json({ error: 'Failed to fetch user engagement analytics' });
   }
 };
