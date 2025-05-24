@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
 const PlayEvent = require('../models/PlayEvent');
+const { detectDeviceTypeFromUserAgent } = require('../utils/deviceDetection');
 
 const readdir = promisify(fs.readdir);
 
@@ -261,18 +262,27 @@ exports.getPlaylist = async (req, res) => {
 
 // Log a play event
 exports.logPlay = async (req, res) => {
-  const { trackUrl, title, duration } = req.body;
+  const { trackUrl, title, duration, deviceType } = req.body;
 
   if (!trackUrl) {
     return res.status(400).json({ error: 'trackUrl required' });
   }
 
   try {
+    // Determine device type: use provided value or detect from user agent
+    let finalDeviceType = deviceType;
+    if (!finalDeviceType || finalDeviceType === 'unknown') {
+      const userAgent = req.headers['user-agent'];
+      finalDeviceType = detectDeviceTypeFromUserAgent(userAgent);
+    }
+
     await PlayEvent.create({
       userId: req.userId,
       trackUrl,
       title,
       duration,
+      deviceType: finalDeviceType,
+      userAgent: req.headers['user-agent'], // Store user agent for further analysis
     });
 
     res.status(201).json({ success: true });
