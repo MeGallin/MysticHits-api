@@ -1,12 +1,28 @@
+// Import required modules
 const axios = require('axios');
 const cheerio = require('cheerio');
 const fs = require('fs');
 const path = require('path');
 const { promisify } = require('util');
-const PlayEvent = require('../models/PlayEvent');
-const { detectDeviceTypeFromUserAgent } = require('../utils/deviceDetection');
+const mongoose = require('mongoose');
 
+// Promisify fs.readdir
 const readdir = promisify(fs.readdir);
+
+// Import models safely with try/catch to handle errors gracefully
+let PlayEvent, Interaction;
+
+try {
+  PlayEvent = require('../models/PlayEvent');
+} catch (error) {
+  console.warn('Warning: PlayEvent model not found or has errors');
+}
+
+try {
+  Interaction = require('../models/Interaction');
+} catch (error) {
+  console.warn('Warning: Interaction model not found or has errors');
+}
 
 // Supported audio MIME types for file extensions:
 const mimeTypes = {
@@ -19,6 +35,16 @@ const mimeTypes = {
   mp4: 'video/mp4',
 };
 
+// Helper function to detect device type from user agent
+const detectDeviceTypeFromUserAgent = (userAgent) => {
+  if (!userAgent) return 'unknown';
+
+  if (/mobile|android|iphone|ipad|ipod/i.test(userAgent)) return 'mobile';
+  if (/tablet|ipad/i.test(userAgent)) return 'tablet';
+  if (/smart-tv|hbbtv|netcast|viera|nettv|roku/i.test(userAgent)) return 'tv';
+  return 'desktop';
+};
+
 /**
  * Extract audio file links from HTML content
  * @param {string} html - HTML content
@@ -26,7 +52,7 @@ const mimeTypes = {
  * @returns {Array} - Array of track objects with title, url, and mime type
  */
 // Export for testing
-exports.extractMp3Links = (html, baseUrl) => {
+const extractMp3Links = (html, baseUrl) => {
   const $ = cheerio.load(html);
   const tracks = [];
 
@@ -78,7 +104,7 @@ exports.extractMp3Links = (html, baseUrl) => {
  * @throws {Error} - If URL is invalid
  */
 // Export for testing
-exports.validateUrl = (url) => {
+const validateUrl = (url) => {
   // Check if URL is valid
   try {
     const urlObj = new URL(url);
@@ -112,13 +138,13 @@ exports.validateUrl = (url) => {
  * @returns {Promise<Array>} - Array of track objects with title and url
  */
 // Export for testing
-exports.getPlaylistFromRemoteFolder = async (url) => {
+const getPlaylistFromRemoteFolder = async (url) => {
   try {
     // Validate and sanitize URL
-    const validatedUrl = exports.validateUrl(url);
+    const validatedUrl = validateUrl(url);
 
     const response = await axios.get(validatedUrl);
-    return exports.extractMp3Links(response.data, validatedUrl);
+    return extractMp3Links(response.data, validatedUrl);
   } catch (error) {
     throw new Error(`Failed to fetch remote playlist: ${error.message}`);
   }
@@ -131,7 +157,7 @@ exports.getPlaylistFromRemoteFolder = async (url) => {
  * @throws {Error} - If folder path is invalid
  */
 // Export for testing
-exports.validateFolderPath = (folderPath) => {
+const validateFolderPath = (folderPath) => {
   // Remove leading slashes
   let sanitizedPath = folderPath.replace(/^\/+/, '');
 
@@ -163,10 +189,10 @@ exports.validateFolderPath = (folderPath) => {
  * @returns {Promise<Array>} - Array of track objects with title, url, and mime type
  */
 // Export for testing
-exports.getPlaylistFromLocalFolder = async (folderPath, req) => {
+const getPlaylistFromLocalFolder = async (folderPath, req) => {
   try {
     // Validate and sanitize folder path
-    const sanitizedFolderPath = exports.validateFolderPath(folderPath);
+    const sanitizedFolderPath = validateFolderPath(folderPath);
 
     // Ensure the folder path is within the public directory
     const publicMusicPath = path.join('public', 'music');
@@ -220,11 +246,12 @@ exports.getPlaylistFromLocalFolder = async (folderPath, req) => {
 };
 
 /**
+ * Get playlist from remote URL or local folder
  * @desc    Get playlist from remote URL or local folder
  * @route   GET /api/playlist
  * @access  Public
  */
-exports.getPlaylist = async (req, res) => {
+const getPlaylist = async (req, res) => {
   const { url, folder } = req.query;
 
   // Validate that either url or folder is provided
@@ -240,10 +267,10 @@ exports.getPlaylist = async (req, res) => {
 
     if (url) {
       // Get playlist from remote URL
-      tracks = await exports.getPlaylistFromRemoteFolder(url);
+      tracks = await getPlaylistFromRemoteFolder(url);
     } else if (folder) {
       // Get playlist from local folder
-      tracks = await exports.getPlaylistFromLocalFolder(folder, req);
+      tracks = await getPlaylistFromLocalFolder(folder, req);
     }
 
     return res.status(200).json({
@@ -260,13 +287,16 @@ exports.getPlaylist = async (req, res) => {
   }
 };
 
-// Log a play event with enhanced analytics data
-exports.logPlay = async (req, res) => {
-  const { 
-    trackUrl, 
-    title, 
-    duration, 
-    deviceType,
+/**
+ * Log a play event with enhanced analytics data
+ * Optimized to minimize database writes with strict throttling
+ */
+const logPlay = async (req, res) => {
+  const {
+    trackUrl,
+    trackId,
+    title,
+    duration,
     // Enhanced analytics fields
     artist,
     album,
@@ -281,170 +311,300 @@ exports.logPlay = async (req, res) => {
     sessionId,
     sessionPosition,
     // Quality metrics
-    networkType
+    networkType,
+    // Storage configuration
+    storeDetailedMetrics = true, // Set to false to use aggregation and reduce DB entries
   } = req.body;
 
-  if (!trackUrl) {
-    return res.status(400).json({ error: 'trackUrl required' });
+  // Check for either trackId or trackUrl
+  const finalTrackId = trackId || trackUrl;
+  if (!finalTrackId) {
+    return res.status(400).json({ error: 'trackId or trackUrl is required' });
   }
 
   try {
-    // Determine device type: use provided value or detect from user agent
-    let finalDeviceType = deviceType;
+    // Generate a session-specific key to detect duplicates
+    const userKey = req.user ? req.user.id : req.userId || 'anonymous';
+    const sessionKey =
+      req.body.sessionId || req.headers['x-session-id'] || 'default';
+
+    // Use in-memory cache before even attempting DB operation
+    const requestKey = `${userKey}_${finalTrackId}_${sessionKey}`;
+
+    // Static in-memory tracker to prevent DB access for frequent requests
+    if (!logPlay.recentRequests) logPlay.recentRequests = {};
+
+    // Check if we've seen this exact request in the past 10 seconds
+    const now = Date.now();
+    if (
+      logPlay.recentRequests[requestKey] &&
+      now - logPlay.recentRequests[requestKey] < 10000
+    ) {
+      // 10 seconds
+
+      // Return success but indicate it was throttled
+      return res.status(200).json({
+        success: true,
+        throttled: true,
+        message: 'Request throttled to prevent excessive database writes',
+      });
+    }
+
+    // Update our in-memory record of this request
+    logPlay.recentRequests[requestKey] = now;
+
+    // Clean up old entries from the recentRequests object every 100 requests
+    if (Object.keys(logPlay.recentRequests).length > 100) {
+      const tenSecondsAgo = now - 10000;
+      Object.keys(logPlay.recentRequests).forEach((key) => {
+        if (logPlay.recentRequests[key] < tenSecondsAgo) {
+          delete logPlay.recentRequests[key];
+        }
+      });
+    }
+
+    // Determine device type
+    let finalDeviceType = req.body.deviceType;
     if (!finalDeviceType || finalDeviceType === 'unknown') {
       const userAgent = req.headers['user-agent'];
       finalDeviceType = detectDeviceTypeFromUserAgent(userAgent);
     }
 
-    // Get client IP for geographic data (you may want to use a service like ipapi.co)
-    const clientIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress || req.socket.remoteAddress;
-
-    const playEvent = await PlayEvent.create({
-      userId: req.userId,
-      trackUrl,
+    // Prepare play data - but keep it minimal to avoid excessive DB size
+    const playData = {
+      userId: req.user ? req.user.id : req.userId,
+      trackId: finalTrackId,
+      trackUrl: trackUrl || finalTrackId,
       title,
       duration,
-      deviceType: finalDeviceType,
-      userAgent: req.headers['user-agent'],
-      
-      // Enhanced analytics fields
-      artist,
-      album,
-      genre,
-      year: year ? parseInt(year) : undefined,
-      
-      // Playback context
-      source: source || 'direct',
-      playlistId,
-      previousTrack,
-      nextTrack,
-      
-      // Technical data
-      ipAddress: clientIP,
-      
-      // Session data
       sessionId,
-      sessionPosition: sessionPosition ? parseInt(sessionPosition) : 1,
-      
-      // Quality metrics
-      networkType: networkType || 'unknown'
-    });
+      deviceType: finalDeviceType,
+      // Simplified data to reduce DB size
+      source: req.body.source || 'direct',
+      // Default to NOT storing detailed metrics to reduce DB writes
+      storeDetailedMetrics: false,
+    };
 
-    res.status(201).json({ 
-      success: true, 
-      playEventId: playEvent._id 
+    // Use the optimized and throttled method for logging plays
+    const playEvent = await PlayEvent.logPlay(playData);
+
+    res.status(201).json({
+      success: true,
+      playEventId: playEvent._id,
+      throttled: playEvent.throttled,
     });
   } catch (error) {
     console.error('Error logging play event:', error);
-    res.status(500).json({ error: 'Server error, failed to log play event' });
+    res.status(500).json({
+      error: 'Server error, failed to log play event',
+    });
   }
 };
 
-// Update play event with listening progress/completion data
-exports.updatePlayEvent = async (req, res) => {
+/**
+ * Update a play event with progress/completion data
+ * Only update necessary fields, with extreme throttling
+ */
+const updatePlayEvent = async (req, res) => {
   const { playEventId } = req.params;
-  const {
-    listenDuration,
-    completed,
-    skipped,
-    skipTime,
-    repeated,
-    liked,
-    shared,
-    bufferCount,
-    qualityDrops,
-    endedAt
-  } = req.body;
+  const { progress, status, endTimestamp } = req.body;
 
   try {
-    const updateData = {};
-    
-    if (listenDuration !== undefined) updateData.listenDuration = parseInt(listenDuration);
-    if (completed !== undefined) updateData.completed = Boolean(completed);
-    if (skipped !== undefined) updateData.skipped = Boolean(skipped);
-    if (skipTime !== undefined) updateData.skipTime = parseInt(skipTime);
-    if (repeated !== undefined) updateData.repeated = Boolean(repeated);
-    if (liked !== undefined) updateData.liked = Boolean(liked);
-    if (shared !== undefined) updateData.shared = Boolean(shared);
-    if (bufferCount !== undefined) updateData.bufferCount = parseInt(bufferCount);
-    if (qualityDrops !== undefined) updateData.qualityDrops = parseInt(qualityDrops);
-    if (endedAt) updateData.endedAt = new Date(endedAt);
+    const userId = req.user ? req.user.id : req.userId;
 
-    const playEvent = await PlayEvent.findOneAndUpdate(
-      { _id: playEventId, userId: req.userId },
+    // Only include critical fields in the update to minimize DB load
+    const updateData = {};
+    if (progress !== undefined) updateData.progress = progress;
+    if (status !== undefined) updateData.status = status;
+    if (endTimestamp) updateData.endTimestamp = new Date(endTimestamp);
+
+    // Use throttled update method to prevent excess writes
+    const result = await PlayEvent.updatePlayWithThrottle(
+      playEventId,
+      userId,
       updateData,
-      { new: true }
     );
 
-    if (!playEvent) {
+    if (!result) {
       return res.status(404).json({ error: 'Play event not found' });
     }
 
-    res.status(200).json({ success: true });
-  } catch (error) {
-    console.error('Error updating play event:', error);
-    res.status(500).json({ error: 'Server error, failed to update play event' });
-  }
-};
-
-// Batch update multiple play events (useful for session end)
-exports.batchUpdatePlayEvents = async (req, res) => {
-  const { updates } = req.body; // Array of {playEventId, updateData}
-
-  if (!Array.isArray(updates) || updates.length === 0) {
-    return res.status(400).json({ error: 'Updates array is required' });
-  }
-
-  try {
-    const bulkOps = updates.map(({ playEventId, updateData }) => ({
-      updateOne: {
-        filter: { _id: playEventId, userId: req.userId },
-        update: updateData
-      }
-    }));
-
-    const result = await PlayEvent.bulkWrite(bulkOps);
-
-    res.status(200).json({ 
-      success: true, 
-      modifiedCount: result.modifiedCount 
+    res.status(200).json({
+      success: true,
+      throttled: result.throttled || result.rateLimited,
     });
   } catch (error) {
-    console.error('Error batch updating play events:', error);
-    res.status(500).json({ error: 'Server error, failed to batch update play events' });
+    console.error('Error updating play event:', error);
+    res
+      .status(500)
+      .json({ error: 'Server error, failed to update play event' });
   }
 };
 
-// Log user interaction with a track (like, share, etc.)
-exports.logInteraction = async (req, res) => {
-  const { trackUrl, interactionType, value } = req.body;
-
-  if (!trackUrl || !interactionType) {
-    return res.status(400).json({ error: 'trackUrl and interactionType are required' });
-  }
+/**
+ * Batch update multiple play events with extreme throttling
+ */
+const batchUpdatePlayEvents = async (req, res) => {
+  let session;
 
   try {
-    // Find the most recent play event for this track and user
-    const playEvent = await PlayEvent.findOne({
-      userId: req.userId,
-      trackUrl,
-    }).sort({ startedAt: -1 });
+    const { playEvents } = req.body;
+    const userId = req.user ? req.user.id : req.userId;
 
-    if (!playEvent) {
-      return res.status(404).json({ error: 'No recent play event found for this track' });
+    if (!Array.isArray(playEvents) || playEvents.length === 0) {
+      return res
+        .status(400)
+        .json({ message: 'Valid array of play events is required' });
     }
 
-    // Update the interaction
-    const updateData = {};
-    if (interactionType === 'like') updateData.liked = Boolean(value);
-    if (interactionType === 'share') updateData.shared = Boolean(value);
-    if (interactionType === 'repeat') updateData.repeated = Boolean(value);
+    // Limit the number of events to process
+    const limitedEvents = playEvents.slice(0, 10); // Only process up to 10 events at once
 
-    await PlayEvent.findByIdAndUpdate(playEvent._id, updateData);
+    session = await mongoose.startSession();
+    session.startTransaction();
 
-    res.status(200).json({ success: true });
+    // Use the throttled batch update method
+    const result = await PlayEvent.batchUpdateWithThrottle(
+      limitedEvents,
+      userId,
+      session,
+    );
+
+    // For aggregated metrics, only update once at most by collecting stats
+    const stats = {
+      completions: limitedEvents.filter((e) => e.completed).length,
+      skips: limitedEvents.filter((e) => e.skipped).length,
+      totalListenDuration: limitedEvents.reduce(
+        (sum, e) => sum + (e.listenDuration || 0),
+        0,
+      ),
+    };
+
+    if (
+      stats.completions > 0 ||
+      stats.skips > 0 ||
+      stats.totalListenDuration > 0
+    ) {
+      // Get unique track IDs
+      const uniqueTrackIds = [
+        ...new Set(
+          limitedEvents.filter((e) => e.trackId).map((e) => e.trackId),
+        ),
+      ];
+
+      // Update aggregated metrics for these tracks, just once
+      for (const trackId of uniqueTrackIds) {
+        const eventsForTrack = limitedEvents.filter(
+          (e) => e.trackId === trackId,
+        );
+        const trackStats = {
+          completions: eventsForTrack.filter((e) => e.completed).length,
+          skips: eventsForTrack.filter((e) => e.skipped).length,
+          listenDuration: eventsForTrack.reduce(
+            (sum, e) => sum + (e.listenDuration || 0),
+            0,
+          ),
+        };
+
+        // Only update if we have meaningful stats
+        if (
+          trackStats.completions > 0 ||
+          trackStats.skips > 0 ||
+          trackStats.listenDuration > 0
+        ) {
+          await PlayEvent.findOneAndUpdate(
+            {
+              userId,
+              trackId,
+              isAggregated: true,
+              day: new Date().toISOString().split('T')[0],
+            },
+            {
+              $inc: {
+                'playMetrics.completions': trackStats.completions,
+                'playMetrics.skips': trackStats.skips,
+                'playMetrics.totalListenTime': trackStats.listenDuration,
+              },
+              $set: { lastUpdateTime: new Date() },
+            },
+            { upsert: true, session },
+          );
+        }
+      }
+    }
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return res.status(200).json({
+      success: true,
+      processed: limitedEvents.length,
+      skipped: playEvents.length - limitedEvents.length,
+      matchedCount: result.matchedCount,
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (error) {
+    if (session) {
+      await session.abortTransaction();
+      session.endSession();
+    }
+
+    console.error('Error batch updating play events:', error);
+    return res
+      .status(500)
+      .json({ message: 'Server error during batch update' });
+  }
+};
+
+/**
+ * Log user interactions with optimized database operations
+ */
+const logInteraction = async (req, res) => {
+  try {
+    const { trackId, interactionType, timestamp } = req.body;
+    const userId = req.user.id;
+
+    if (!trackId || !interactionType) {
+      return res
+        .status(400)
+        .json({ message: 'Track ID and interaction type are required' });
+    }
+
+    // Check if interaction already exists and update instead of creating new
+    const interaction = await Interaction.findOneAndUpdate(
+      {
+        userId,
+        trackId,
+        interactionType,
+        createdAt: { $gte: new Date(Date.now() - 3600000) },
+      }, // Within last hour
+      { $set: { timestamp: timestamp || Date.now() } },
+      { new: true, upsert: true },
+    );
+
+    return res.status(201).json({
+      success: true,
+      interactionId: interaction._id,
+    });
   } catch (error) {
     console.error('Error logging interaction:', error);
-    res.status(500).json({ error: 'Server error, failed to log interaction' });
+    return res
+      .status(500)
+      .json({ message: 'Server error while logging interaction' });
   }
+};
+
+// Export all functions consistently using module.exports
+module.exports = {
+  getPlaylist,
+  logPlay,
+  updatePlayEvent,
+  batchUpdatePlayEvents,
+  logInteraction,
+  // Export utility functions as well so they can be used by other controllers
+  extractMp3Links,
+  validateUrl,
+  getPlaylistFromRemoteFolder,
+  validateFolderPath,
+  getPlaylistFromLocalFolder,
 };
