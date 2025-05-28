@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const { validateUrl, validateFolderPath } = require('./playlistController');
+const playlistController = require('./playlistController');
 
 /**
  * Helper function to validate that the user is either the owner of the resource
@@ -240,7 +241,6 @@ exports.playFolder = async (req, res) => {
     const { path } = user.folders[0];
 
     // Get the playlist using existing playlist controller methods
-    const playlistController = require('./playlistController');
     let tracks = [];
 
     if (path.startsWith('http')) {
@@ -373,12 +373,10 @@ exports.adminAddFolderToUser = async (req, res) => {
 
     // Validate folder count (max 50 per user)
     if (targetUser.folders && targetUser.folders.length >= 50) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          error: 'Maximum of 50 folders reached for this user',
-        });
+      return res.status(400).json({
+        success: false,
+        error: 'Maximum of 50 folders reached for this user',
+      });
     }
 
     // Quick path validation

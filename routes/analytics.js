@@ -6,7 +6,7 @@ const {
   getPatterns,
   getGeographic,
   getPlaylistAnalytics,
-  getEngagement
+  getEngagement,
 } = require('../controllers/analyticsController');
 const auth = require('../middleware/auth');
 const adminMiddleware = require('../middleware/adminMiddleware');
