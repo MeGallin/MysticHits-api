@@ -335,3 +335,258 @@ exports.reorderFolders = async (req, res) => {
     });
   }
 };
+
+/**
+ * Admin: Add a folder to a specific user's account
+ *
+ * @route POST /api/admin/users/:uid/folders
+ * @access Admin only
+ */
+exports.adminAddFolderToUser = async (req, res) => {
+  try {
+    // Ensure user is admin
+    if (!req.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden: Admin access required',
+      });
+    }
+
+    const { uid } = req.params;
+    const { label, path } = req.body;
+
+    // Validate required fields
+    if (!label || !path) {
+      return res
+        .status(400)
+        .json({ success: false, error: 'label & path required' });
+    }
+
+    // Check if target user exists
+    const targetUser = await User.findById(uid);
+    if (!targetUser) {
+      return res.status(404).json({
+        success: false,
+        error: 'Target user not found',
+      });
+    }
+
+    // Validate folder count (max 50 per user)
+    if (targetUser.folders && targetUser.folders.length >= 50) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          error: 'Maximum of 50 folders reached for this user',
+        });
+    }
+
+    // Quick path validation
+    try {
+      path.startsWith('http') ? validateUrl(path) : validateFolderPath(path);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: e.message });
+    }
+
+    // Add the new folder and return it
+    const updatedUser = await User.findByIdAndUpdate(
+      uid,
+      { $push: { folders: { label, path } } },
+      { new: true, select: 'folders username email' },
+    );
+
+    // Return just the newly added folder (last one in the array)
+    const newFolder = updatedUser.folders[updatedUser.folders.length - 1];
+    res.status(201).json({
+      success: true,
+      data: newFolder,
+      message: `Folder added to user ${
+        updatedUser.username || updatedUser.email
+      }`,
+    });
+  } catch (error) {
+    console.error('Error adding folder to user:', error);
+    res
+      .status(500)
+      .json({ success: false, error: 'Failed to add folder to user' });
+  }
+};
+
+/**
+ * Admin: Remove a folder from a specific user's account
+ *
+ * @route DELETE /api/admin/users/:uid/folders/:folderId
+ * @access Admin only
+ */
+exports.adminRemoveFolderFromUser = async (req, res) => {
+  try {
+    // Ensure user is admin
+    if (!req.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden: Admin access required',
+      });
+    }
+
+    const { uid, folderId } = req.params;
+
+    // Find the user and folder
+    const user = await User.findOne(
+      { _id: uid, 'folders._id': folderId },
+      { 'folders.$': 1, username: 1, email: 1 },
+    );
+
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, error: 'User or folder not found' });
+    }
+
+    // Remove the folder
+    await User.updateOne(
+      { _id: uid },
+      { $pull: { folders: { _id: folderId } } },
+    );
+
+    res.json({
+      success: true,
+      message: `Folder removed from user ${user.username || user.email}`,
+    });
+  } catch (error) {
+    console.error('Error removing folder from user:', error);
+    res
+      .status(500)
+      .json({ success: false, error: 'Failed to remove folder from user' });
+  }
+};
+
+/**
+ * Admin: Get all folders for a specific user
+ *
+ * @route GET /api/admin/users/:uid/folders
+ * @access Admin only
+ */
+exports.adminGetUserFolders = async (req, res) => {
+  try {
+    // Ensure user is admin
+    if (!req.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden: Admin access required',
+      });
+    }
+
+    const { uid } = req.params;
+
+    const user = await User.findById(uid, 'folders username email');
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          id: user._id,
+          username: user.username,
+          email: user.email,
+        },
+        folders: user.folders || [],
+      },
+    });
+  } catch (error) {
+    console.error('Error getting user folders:', error);
+    res
+      .status(500)
+      .json({ success: false, error: 'Failed to get user folders' });
+  }
+};
+
+/**
+ * Admin: Bulk add folders to multiple users
+ *
+ * @route POST /api/admin/folders/bulk-add
+ * @access Admin only
+ */
+exports.adminBulkAddFolders = async (req, res) => {
+  try {
+    // Ensure user is admin
+    if (!req.isAdmin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Forbidden: Admin access required',
+      });
+    }
+
+    const { userIds, label, path } = req.body;
+
+    // Validate required fields
+    if (!userIds || !Array.isArray(userIds) || !label || !path) {
+      return res.status(400).json({
+        success: false,
+        error: 'userIds array, label & path required',
+      });
+    }
+
+    // Quick path validation
+    try {
+      path.startsWith('http') ? validateUrl(path) : validateFolderPath(path);
+    } catch (e) {
+      return res.status(400).json({ success: false, error: e.message });
+    }
+
+    const results = {
+      successful: [],
+      failed: [],
+    };
+
+    // Process each user
+    for (const uid of userIds) {
+      try {
+        const user = await User.findById(uid);
+
+        if (!user) {
+          results.failed.push({ userId: uid, error: 'User not found' });
+          continue;
+        }
+
+        // Check folder limit
+        if (user.folders && user.folders.length >= 50) {
+          results.failed.push({
+            userId: uid,
+            error: 'Maximum of 50 folders reached',
+            username: user.username || user.email,
+          });
+          continue;
+        }
+
+        // Add folder
+        await User.findByIdAndUpdate(uid, {
+          $push: { folders: { label, path } },
+        });
+
+        results.successful.push({
+          userId: uid,
+          username: user.username || user.email,
+        });
+      } catch (error) {
+        results.failed.push({
+          userId: uid,
+          error: error.message,
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      data: results,
+      message: `Bulk operation completed: ${results.successful.length} successful, ${results.failed.length} failed`,
+    });
+  } catch (error) {
+    console.error('Error in bulk add folders:', error);
+    res
+      .status(500)
+      .json({ success: false, error: 'Failed to bulk add folders' });
+  }
+};
