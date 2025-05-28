@@ -260,9 +260,29 @@ exports.getPlaylist = async (req, res) => {
   }
 };
 
-// Log a play event
+// Log a play event with enhanced analytics data
 exports.logPlay = async (req, res) => {
-  const { trackUrl, title, duration, deviceType } = req.body;
+  const { 
+    trackUrl, 
+    title, 
+    duration, 
+    deviceType,
+    // Enhanced analytics fields
+    artist,
+    album,
+    genre,
+    year,
+    // Playback context
+    source,
+    playlistId,
+    previousTrack,
+    nextTrack,
+    // Session data
+    sessionId,
+    sessionPosition,
+    // Quality metrics
+    networkType
+  } = req.body;
 
   if (!trackUrl) {
     return res.status(400).json({ error: 'trackUrl required' });
@@ -276,18 +296,155 @@ exports.logPlay = async (req, res) => {
       finalDeviceType = detectDeviceTypeFromUserAgent(userAgent);
     }
 
-    await PlayEvent.create({
+    // Get client IP for geographic data (you may want to use a service like ipapi.co)
+    const clientIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress || req.socket.remoteAddress;
+
+    const playEvent = await PlayEvent.create({
       userId: req.userId,
       trackUrl,
       title,
       duration,
       deviceType: finalDeviceType,
-      userAgent: req.headers['user-agent'], // Store user agent for further analysis
+      userAgent: req.headers['user-agent'],
+      
+      // Enhanced analytics fields
+      artist,
+      album,
+      genre,
+      year: year ? parseInt(year) : undefined,
+      
+      // Playback context
+      source: source || 'direct',
+      playlistId,
+      previousTrack,
+      nextTrack,
+      
+      // Technical data
+      ipAddress: clientIP,
+      
+      // Session data
+      sessionId,
+      sessionPosition: sessionPosition ? parseInt(sessionPosition) : 1,
+      
+      // Quality metrics
+      networkType: networkType || 'unknown'
     });
 
-    res.status(201).json({ success: true });
+    res.status(201).json({ 
+      success: true, 
+      playEventId: playEvent._id 
+    });
   } catch (error) {
     console.error('Error logging play event:', error);
     res.status(500).json({ error: 'Server error, failed to log play event' });
+  }
+};
+
+// Update play event with listening progress/completion data
+exports.updatePlayEvent = async (req, res) => {
+  const { playEventId } = req.params;
+  const {
+    listenDuration,
+    completed,
+    skipped,
+    skipTime,
+    repeated,
+    liked,
+    shared,
+    bufferCount,
+    qualityDrops,
+    endedAt
+  } = req.body;
+
+  try {
+    const updateData = {};
+    
+    if (listenDuration !== undefined) updateData.listenDuration = parseInt(listenDuration);
+    if (completed !== undefined) updateData.completed = Boolean(completed);
+    if (skipped !== undefined) updateData.skipped = Boolean(skipped);
+    if (skipTime !== undefined) updateData.skipTime = parseInt(skipTime);
+    if (repeated !== undefined) updateData.repeated = Boolean(repeated);
+    if (liked !== undefined) updateData.liked = Boolean(liked);
+    if (shared !== undefined) updateData.shared = Boolean(shared);
+    if (bufferCount !== undefined) updateData.bufferCount = parseInt(bufferCount);
+    if (qualityDrops !== undefined) updateData.qualityDrops = parseInt(qualityDrops);
+    if (endedAt) updateData.endedAt = new Date(endedAt);
+
+    const playEvent = await PlayEvent.findOneAndUpdate(
+      { _id: playEventId, userId: req.userId },
+      updateData,
+      { new: true }
+    );
+
+    if (!playEvent) {
+      return res.status(404).json({ error: 'Play event not found' });
+    }
+
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('Error updating play event:', error);
+    res.status(500).json({ error: 'Server error, failed to update play event' });
+  }
+};
+
+// Batch update multiple play events (useful for session end)
+exports.batchUpdatePlayEvents = async (req, res) => {
+  const { updates } = req.body; // Array of {playEventId, updateData}
+
+  if (!Array.isArray(updates) || updates.length === 0) {
+    return res.status(400).json({ error: 'Updates array is required' });
+  }
+
+  try {
+    const bulkOps = updates.map(({ playEventId, updateData }) => ({
+      updateOne: {
+        filter: { _id: playEventId, userId: req.userId },
+        update: updateData
+      }
+    }));
+
+    const result = await PlayEvent.bulkWrite(bulkOps);
+
+    res.status(200).json({ 
+      success: true, 
+      modifiedCount: result.modifiedCount 
+    });
+  } catch (error) {
+    console.error('Error batch updating play events:', error);
+    res.status(500).json({ error: 'Server error, failed to batch update play events' });
+  }
+};
+
+// Log user interaction with a track (like, share, etc.)
+exports.logInteraction = async (req, res) => {
+  const { trackUrl, interactionType, value } = req.body;
+
+  if (!trackUrl || !interactionType) {
+    return res.status(400).json({ error: 'trackUrl and interactionType are required' });
+  }
+
+  try {
+    // Find the most recent play event for this track and user
+    const playEvent = await PlayEvent.findOne({
+      userId: req.userId,
+      trackUrl,
+    }).sort({ startedAt: -1 });
+
+    if (!playEvent) {
+      return res.status(404).json({ error: 'No recent play event found for this track' });
+    }
+
+    // Update the interaction
+    const updateData = {};
+    if (interactionType === 'like') updateData.liked = Boolean(value);
+    if (interactionType === 'share') updateData.shared = Boolean(value);
+    if (interactionType === 'repeat') updateData.repeated = Boolean(value);
+
+    await PlayEvent.findByIdAndUpdate(playEvent._id, updateData);
+
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('Error logging interaction:', error);
+    res.status(500).json({ error: 'Server error, failed to log interaction' });
   }
 };
