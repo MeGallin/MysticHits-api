@@ -29,6 +29,12 @@ const {
   clearHitData,
   getHitAnalytics,
 } = require('../controllers/seedController');
+const {
+  adminAddFolderToUser,
+  adminRemoveFolderFromUser,
+  adminGetUserFolders,
+  adminBulkAddFolders,
+} = require('../controllers/folderController');
 const ErrorEvent = require('../models/ErrorEvent');
 
 // Apply admin middleware to all routes
@@ -141,5 +147,18 @@ router.get('/listening-analytics/playlists', getPlaylistAnalytics);
 
 // GET user engagement and retention analytics
 router.get('/listening-analytics/engagement', getUserEngagementAnalytics);
+
+// ADMIN FOLDER MANAGEMENT ROUTES
+// Add folder to specific user
+router.post('/users/:uid/folders', adminAddFolderToUser);
+
+// Remove folder from specific user
+router.delete('/users/:uid/folders/:folderId', adminRemoveFolderFromUser);
+
+// Get all folders for specific user
+router.get('/users/:uid/folders', adminGetUserFolders);
+
+// Bulk add folders to multiple users
+router.post('/folders/bulk-add', adminBulkAddFolders);
 
 module.exports = router;

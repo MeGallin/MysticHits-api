@@ -30,7 +30,8 @@ module.exports = async function (req, res, next) {
         .json({ error: 'Access denied. Admin privileges required' });
     }
 
-    // User is authenticated and is an admin
+    // User is authenticated and is an admin - set the flag
+    req.isAdmin = true;
     next();
   } catch (err) {
     if (err.name === 'JsonWebTokenError') {
