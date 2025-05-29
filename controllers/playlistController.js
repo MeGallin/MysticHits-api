@@ -562,7 +562,7 @@ const batchUpdatePlayEvents = async (req, res) => {
 const logInteraction = async (req, res) => {
   try {
     const { trackId, interactionType, timestamp } = req.body;
-    const userId = req.user.id;
+    const userId = req.user ? req.user.id : req.userId || 'anonymous';
 
     if (!trackId || !interactionType) {
       return res
