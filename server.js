@@ -21,6 +21,7 @@ const healthRoutes = require('./routes/health');
 const chartsRoutes = require('./routes/charts');
 const folderRoutes = require('./routes/folders');
 const analyticsRoutes = require('./routes/analytics');
+const playMetricsRoutes = require('./routes/playMetrics');
 
 const app = express();
 
@@ -86,6 +87,7 @@ app.use('/api/health', healthRoutes);
 app.use('/api/charts', chartsRoutes);
 app.use('/api/user/folders', folderRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/playmetrics', playMetricsRoutes);
 
 // Error handling middleware - must be after all routes
 app.use(errorHandler);

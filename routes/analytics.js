@@ -12,45 +12,45 @@ const auth = require('../middleware/auth');
 const adminMiddleware = require('../middleware/adminMiddleware');
 
 /**
- * @route   GET /api/analytics/overview
+ * @route   GET /api/analytics/listening-overview
  * @desc    Get listening analytics overview
  * @access  Private (Admin only)
  */
-router.get('/overview', auth, adminMiddleware, getOverview);
+router.get('/listening-overview', auth, adminMiddleware, getOverview);
 
 /**
- * @route   GET /api/analytics/user-behavior
+ * @route   GET /api/analytics/user-listening-behavior
  * @desc    Get user behavior analytics
  * @access  Private (Admin only)
  */
-router.get('/user-behavior', auth, adminMiddleware, getUserBehavior);
+router.get('/user-listening-behavior', auth, adminMiddleware, getUserBehavior);
 
 /**
- * @route   GET /api/analytics/patterns
+ * @route   GET /api/analytics/listening-patterns
  * @desc    Get listening patterns analytics
  * @access  Private (Admin only)
  */
-router.get('/patterns', auth, adminMiddleware, getPatterns);
+router.get('/listening-patterns', auth, adminMiddleware, getPatterns);
 
 /**
- * @route   GET /api/analytics/geographic
+ * @route   GET /api/analytics/geographic-listening
  * @desc    Get geographic analytics
  * @access  Private (Admin only)
  */
-router.get('/geographic', auth, adminMiddleware, getGeographic);
+router.get('/geographic-listening', auth, adminMiddleware, getGeographic);
 
 /**
- * @route   GET /api/analytics/playlists
+ * @route   GET /api/analytics/playlist-analytics
  * @desc    Get playlist analytics
  * @access  Private (Admin only)
  */
-router.get('/playlists', auth, adminMiddleware, getPlaylistAnalytics);
+router.get('/playlist-analytics', auth, adminMiddleware, getPlaylistAnalytics);
 
 /**
- * @route   GET /api/analytics/engagement
+ * @route   GET /api/analytics/user-engagement
  * @desc    Get engagement analytics
  * @access  Private (Admin only)
  */
-router.get('/engagement', auth, adminMiddleware, getEngagement);
+router.get('/user-engagement', auth, adminMiddleware, getEngagement);
 
 module.exports = router;
