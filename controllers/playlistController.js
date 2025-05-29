@@ -10,18 +10,12 @@ const mongoose = require('mongoose');
 const readdir = promisify(fs.readdir);
 
 // Import models safely with try/catch to handle errors gracefully
-let PlayEvent, Interaction;
+let PlayEvent;
 
 try {
   PlayEvent = require('../models/PlayEvent');
 } catch (error) {
   console.warn('Warning: PlayEvent model not found or has errors');
-}
-
-try {
-  Interaction = require('../models/Interaction');
-} catch (error) {
-  console.warn('Warning: Interaction model not found or has errors');
 }
 
 // Supported audio MIME types for file extensions:
@@ -557,40 +551,238 @@ const batchUpdatePlayEvents = async (req, res) => {
 };
 
 /**
- * Log user interactions with optimized database operations
+ * Log user interactions using PlayEvent model
  */
 const logInteraction = async (req, res) => {
   try {
-    const { trackId, interactionType, timestamp } = req.body;
-    const userId = req.user ? req.user.id : req.userId || 'anonymous';
+    const { trackId, interactionType, timestamp, value } = req.body;
+    const userId = req.userId;
+
+    console.log('=== INTERACTION LOG REQUEST ===');
+    console.log('Request body:', req.body);
+    console.log('User ID:', userId);
+    console.log('Track ID:', trackId);
+    console.log('Interaction Type:', interactionType);
+    console.log('Value:', value);
 
     if (!trackId || !interactionType) {
+      console.log('Missing required fields');
       return res
         .status(400)
         .json({ message: 'Track ID and interaction type are required' });
     }
 
-    // Check if interaction already exists and update instead of creating new
-    const interaction = await Interaction.findOneAndUpdate(
-      {
-        userId,
-        trackId,
-        interactionType,
-        createdAt: { $gte: new Date(Date.now() - 3600000) },
-      }, // Within last hour
-      { $set: { timestamp: timestamp || Date.now() } },
-      { new: true, upsert: true },
-    );
+    if (!userId) {
+      console.log('User not authenticated');
+      return res.status(401).json({ message: 'Authentication required' });
+    }
 
-    return res.status(201).json({
-      success: true,
-      interactionId: interaction._id,
-    });
+    if (!PlayEvent) {
+      console.error('PlayEvent model not available');
+      return res.status(500).json({ message: 'PlayEvent model not available' });
+    }
+
+    const userObjectId = mongoose.Types.ObjectId.isValid(userId)
+      ? new mongoose.Types.ObjectId(userId)
+      : userId;
+
+    const today = new Date().toISOString().split('T')[0];
+
+    if (interactionType === 'like') {
+      if (value === false) {
+        // User is unliking - update the PlayEvent to remove like
+        const result = await PlayEvent.findOneAndUpdate(
+          {
+            userId: userObjectId,
+            trackId,
+            day: today,
+            isAggregated: true,
+          },
+          {
+            $set: {
+              liked: false,
+              lastUpdateTime: new Date(),
+            },
+            $inc: {
+              'playMetrics.likes': -1,
+            },
+          },
+          { new: true },
+        );
+
+        console.log(
+          'Like removed from PlayEvent:',
+          result ? result._id : 'not found',
+        );
+
+        return res.status(200).json({
+          success: true,
+          action: 'unliked',
+          playEventId: result ? result._id : null,
+        });
+      } else {
+        // User is liking - update or create PlayEvent with like
+        const result = await PlayEvent.findOneAndUpdate(
+          {
+            userId: userObjectId,
+            trackId,
+            day: today,
+            isAggregated: true,
+          },
+          {
+            $set: {
+              liked: true,
+              lastUpdateTime: new Date(),
+            },
+            $inc: {
+              'playMetrics.likes': 1,
+            },
+            $setOnInsert: {
+              isAggregated: true,
+              storeDetailedMetrics: false,
+              'playMetrics.count': 0,
+            },
+          },
+          { new: true, upsert: true },
+        );
+
+        console.log('Like added to PlayEvent:', result._id);
+
+        return res.status(201).json({
+          success: true,
+          action: 'liked',
+          playEventId: result._id,
+        });
+      }
+    } else if (interactionType === 'share') {
+      const result = await PlayEvent.findOneAndUpdate(
+        {
+          userId: userObjectId,
+          trackId,
+          day: today,
+          isAggregated: true,
+        },
+        {
+          $set: {
+            shared: true,
+            lastUpdateTime: new Date(),
+          },
+          $inc: {
+            'playMetrics.shares': 1,
+          },
+          $setOnInsert: {
+            isAggregated: true,
+            storeDetailedMetrics: false,
+            'playMetrics.count': 0,
+          },
+        },
+        { new: true, upsert: true },
+      );
+
+      console.log('Share interaction saved to PlayEvent:', result._id);
+
+      return res.status(201).json({
+        success: true,
+        action: 'shared',
+        playEventId: result._id,
+      });
+    } else if (interactionType === 'repeat') {
+      const result = await PlayEvent.findOneAndUpdate(
+        {
+          userId: userObjectId,
+          trackId,
+          day: today,
+          isAggregated: true,
+        },
+        {
+          $set: {
+            repeated: true,
+            lastUpdateTime: new Date(),
+          },
+          $inc: {
+            'playMetrics.repeats': 1,
+          },
+          $setOnInsert: {
+            isAggregated: true,
+            storeDetailedMetrics: false,
+            'playMetrics.count': 0,
+          },
+        },
+        { new: true, upsert: true },
+      );
+
+      console.log('Repeat interaction saved to PlayEvent:', result._id);
+
+      return res.status(201).json({
+        success: true,
+        action: 'repeated',
+        playEventId: result._id,
+      });
+    } else {
+      console.log(
+        `Interaction type '${interactionType}' not specifically handled`,
+      );
+      return res.status(200).json({
+        success: true,
+        message: `Interaction type '${interactionType}' logged`,
+      });
+    }
   } catch (error) {
     console.error('Error logging interaction:', error);
     return res
       .status(500)
       .json({ message: 'Server error while logging interaction' });
+  }
+};
+
+/**
+ * Get user's liked tracks using PlayEvent model
+ */
+const getUserLikes = async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    if (!userId) {
+      return res.status(401).json({ message: 'Authentication required' });
+    }
+
+    if (!PlayEvent) {
+      console.error('PlayEvent model not available');
+      return res.status(500).json({ message: 'PlayEvent model not available' });
+    }
+
+    const userObjectId = mongoose.Types.ObjectId.isValid(userId)
+      ? new mongoose.Types.ObjectId(userId)
+      : userId;
+
+    // Get all liked tracks for the user from PlayEvent
+    const likedTracks = await PlayEvent.find({
+      userId: userObjectId,
+      liked: true,
+      isAggregated: true,
+    }).select('trackId timestamp');
+
+    // Convert to a simple object for easy lookup
+    const likesMap = {};
+    likedTracks.forEach((playEvent) => {
+      likesMap[playEvent.trackId] = {
+        liked: true,
+        timestamp: playEvent.timestamp,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        likes: likesMap,
+        count: likedTracks.length,
+      },
+    });
+  } catch (error) {
+    console.error('Error getting user likes:', error);
+    return res
+      .status(500)
+      .json({ message: 'Server error while getting user likes' });
   }
 };
 
@@ -601,6 +793,7 @@ module.exports = {
   updatePlayEvent,
   batchUpdatePlayEvents,
   logInteraction,
+  getUserLikes,
   // Export utility functions as well so they can be used by other controllers
   extractMp3Links,
   validateUrl,

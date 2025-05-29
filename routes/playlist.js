@@ -6,6 +6,7 @@ const {
   updatePlayEvent,
   batchUpdatePlayEvents,
   logInteraction,
+  getUserLikes,
 } = require('../controllers/playlistController');
 const auth = require('../middleware/auth');
 const rateLimit = require('express-rate-limit');
@@ -74,5 +75,12 @@ router.post(
  * @access  Private (requires authentication)
  */
 router.post('/interactions', auth, logInteraction);
+
+/**
+ * @route   GET /api/playlist/likes
+ * @desc    Get user's liked tracks
+ * @access  Private (requires authentication)
+ */
+router.get('/likes', auth, readRateLimiter, getUserLikes);
 
 module.exports = router;
