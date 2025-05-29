@@ -3,18 +3,21 @@ const Hit = require('../models/Hit');
 exports.pageHits = async (req, res) => {
   // Get client IP address
   const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+  
+  // Get page from query params or default to 'home' with safe property access
+  const page = (req.query && req.query.page) || (req.body && req.body.page) || 'home';
 
   // Session-based duplicate prevention (5 minutes window)
   const DUPLICATE_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
   const now = Date.now();
 
   console.log('=================================================');
-  console.log(`HIT REQUEST - IP: ${ip}`);
+  console.log(`HIT REQUEST - IP: ${ip}, PAGE: ${page}`);
   console.log('=================================================');
 
   try {
-    // Find existing hit record for this IP
-    let hit = await Hit.findOne({ ip });
+    // Find existing hit record for this IP and page
+    let hit = await Hit.findOne({ ip, page });
     let shouldIncrement = true;
 
     if (hit) {
@@ -22,7 +25,7 @@ exports.pageHits = async (req, res) => {
       const timeSinceLastHit = now - hit.lastHitAt.getTime();
       shouldIncrement = timeSinceLastHit > DUPLICATE_WINDOW_MS;
 
-      console.log(`Existing hit found for IP ${ip}`);
+      console.log(`Existing hit found for IP ${ip} on page ${page}`);
       console.log(`Time since last hit: ${timeSinceLastHit}ms`);
       console.log(`Should increment: ${shouldIncrement}`);
     }
@@ -40,15 +43,15 @@ exports.pageHits = async (req, res) => {
       } else {
         // Create new hit record
         try {
-          console.log(`Creating new hit record for IP ${ip}`);
-          const newHit = new Hit({ ip, lastHitAt: new Date(now) });
+          console.log(`Creating new hit record for IP ${ip}, page: ${page}`);
+          const newHit = new Hit({ ip, page, lastHitAt: new Date(now) });
           await newHit.save();
           console.log(`Created new hit record with count: ${newHit.hitCount}`);
         } catch (saveError) {
           // Handle duplicate key error (race condition)
           if (saveError.code === 11000) {
-            console.log(`Duplicate key error for IP ${ip}, retrying...`);
-            hit = await Hit.findOne({ ip });
+            console.log(`Duplicate key error for IP ${ip}, page: ${page}, retrying...`);
+            hit = await Hit.findOne({ ip, page });
             if (hit) {
               const timeSinceLastHit = now - hit.lastHitAt.getTime();
               if (timeSinceLastHit > DUPLICATE_WINDOW_MS) {
@@ -68,7 +71,7 @@ exports.pageHits = async (req, res) => {
       }
     } else {
       console.log(
-        `Hit within duplicate window - not incrementing count for IP ${ip}`,
+        `Hit within duplicate window - not incrementing count for IP ${ip}, page ${page}`,
       );
     }
 
