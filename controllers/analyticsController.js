@@ -69,7 +69,7 @@ exports.getOverview = async (req, res) => {
       },
     ]);
 
-    // Combine the results
+    // Merge/prepare metrics
     const aggregated = aggregatedResults[0] || {
       totalPlays: 0,
       uniqueUsers: [],
@@ -106,6 +106,58 @@ exports.getOverview = async (req, res) => {
     const totalCompletions = aggregated.completions + individual.completions;
     const totalTracks = totalPlays;
 
+    // --- Add sources aggregation ---
+    const sourcesAgg = await PlayEvent.aggregate([
+      {
+        $match: {
+          timestamp: { $gte: startDate },
+          source: { $exists: true, $ne: null, $ne: '' },
+        },
+      },
+      {
+        $group: {
+          _id: '$source',
+          count: { $sum: 1 },
+          averageListenDuration: { $avg: '$listenDuration' },
+        },
+      },
+      { $sort: { count: -1 } },
+      { $limit: 10 },
+      {
+        $project: {
+          source: '$_id',
+          count: 1,
+          averageListenDuration: { $ifNull: ['$averageListenDuration', 0] },
+        },
+      },
+    ]);
+
+    // --- Add devices aggregation ---
+    const devicesAgg = await PlayEvent.aggregate([
+      {
+        $match: {
+          timestamp: { $gte: startDate },
+          deviceType: { $exists: true, $ne: null, $ne: '' },
+        },
+      },
+      {
+        $group: {
+          _id: '$deviceType',
+          count: { $sum: 1 },
+          averageListenDuration: { $avg: '$listenDuration' },
+        },
+      },
+      { $sort: { count: -1 } },
+      { $limit: 10 },
+      {
+        $project: {
+          deviceType: '$_id',
+          count: 1,
+          averageListenDuration: { $ifNull: ['$averageListenDuration', 0] },
+        },
+      },
+    ]);
+
     // Prepare response
     const response = {
       success: true,
@@ -116,14 +168,13 @@ exports.getOverview = async (req, res) => {
           uniqueTracks: uniqueTracks.length,
           totalListenTime,
           listenRatio: totalDuration > 0 ? totalListenTime / totalDuration : 0,
-          averageSessionLength: 0, // Would need to compute from session data
+          averageSessionLength: 0, // Compute if you have session data
         },
         completion: {
           completionRate: totalTracks > 0 ? totalCompletions / totalTracks : 0,
         },
-        // We'll need to modify the rest of the analytics similarly
-        sources: [],
-        devices: [],
+        sources: sourcesAgg || [],
+        devices: devicesAgg || [],
       },
     };
 
